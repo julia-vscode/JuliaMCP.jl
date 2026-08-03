@@ -11,12 +11,13 @@ function run_server(input::IO, output::IO)
     try
         serve_loop(state, endpoint)
     catch e
-        if e isa JSONRPC.JSONRPCEndpointClosedError || (e isa Base.IOError)
+        if e isa JSONRPC.TransportError || e isa Base.IOError || e isa InvalidStateException
             mcp_debug(state, "transport", "Connection closed")
         else
             @error "Server error" exception = (e, catch_backtrace())
         end
     finally
+        stop_watcher!(state)
         shutdown_controller!(state)
         try
             close(endpoint)

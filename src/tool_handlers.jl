@@ -1,10 +1,35 @@
 # tool_handlers.jl — MCP tool call implementations
 
+"""
+Check `arguments` against the `required` list in the tool's declared input
+schema. Returns an error result for the client, or `nothing` when valid.
+"""
+function validate_tool_arguments(tool_name::String, arguments::Dict{String,Any})
+    idx = findfirst(d -> d["name"] == tool_name, tool_definitions())
+    idx === nothing && return nothing
+
+    schema = tool_definitions()[idx]["inputSchema"]
+    missing_args = [
+        name for name in get(schema, "required", String[])
+        if !haskey(arguments, name) || arguments[name] === nothing
+    ]
+    isempty(missing_args) && return nothing
+
+    return tool_result_error("Missing required argument(s) for $tool_name: $(join(missing_args, ", "))")
+end
+
 function handle_tool_call(state::AppState, tool_name::String, arguments::Dict{String,Any})
+    invalid = validate_tool_arguments(tool_name, arguments)
+    invalid === nothing || return invalid
+
     if tool_name == "set_workspace_folders"
         return tool_set_workspace_folders(state, arguments)
     elseif tool_name == "update_file"
         return tool_update_file(state, arguments)
+    elseif tool_name == "get_diagnostics"
+        return tool_get_diagnostics(state, arguments)
+    elseif tool_name == "format_file"
+        return tool_format_file(state, arguments)
     elseif tool_name == "list_testitems"
         return tool_list_testitems(state, arguments)
     elseif tool_name == "run_testitems"
@@ -36,11 +61,22 @@ function tool_set_workspace_folders(state::AppState, args::Dict{String,Any})
     folders = convert(Vector{String}, args["folders"])
     mcp_info(state, "tools", "Setting workspace folders: $folders")
 
-    jw = JuliaWorkspaces.workspace_from_folders(folders)
-    state.workspace = jw
+    with_workspace_lock(state) do
+        state.workspace = JuliaWorkspaces.workspace_from_folders(folders)
+    end
+    state.folders = folders
 
     # Initialize controller on first workspace setup
     init_controller!(state)
+
+    if something(get(args, "watch", nothing), true)
+        start_watcher!(
+            state;
+            interval = something(get(args, "watch_interval", nothing), WATCH_INTERVAL_DEFAULT),
+        )
+    else
+        stop_watcher!(state)
+    end
 
     items = collect_testitems_list(state)
     errors = collect_detection_errors(state)
@@ -48,6 +84,7 @@ function tool_set_workspace_folders(state::AppState, args::Dict{String,Any})
     notify_resource_list_changed(state)
     notify_resource_updated(state, "workspace://testitems")
     notify_resource_updated(state, "workspace://detection-errors")
+    notify_resource_updated(state, "workspace://diagnostics")
 
     text = "Workspace configured with $(length(folders)) folder(s). " *
            "Detected $(length(items)) test item(s)"
@@ -66,12 +103,95 @@ function tool_update_file(state::AppState, args::Dict{String,Any})
     jw = state.workspace
     jw === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
 
-    JuliaWorkspaces.update_file_from_disc!(jw, path)
+    with_workspace_lock(state) do
+        JuliaWorkspaces.update_file_from_disc!(jw, path)
+    end
+    # Keep the watcher from re-reporting a change we just applied.
+    haskey(state.watcher_snapshot, path) && (state.watcher_snapshot[path] = mtime(path))
 
     notify_resource_updated(state, "workspace://testitems")
     notify_resource_updated(state, "workspace://detection-errors")
+    notify_resource_updated(state, "workspace://diagnostics")
 
     return tool_result_text("File updated: $path")
+end
+
+# --- get_diagnostics ---
+
+function tool_get_diagnostics(state::AppState, args::Dict{String,Any})
+    state.workspace === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
+
+    uri = haskey(args, "path") && args["path"] !== nothing ? resolve_uri(args["path"]::String) : nothing
+    if uri !== nothing && !with_workspace_lock(() -> JuliaWorkspaces.has_file(state.workspace, uri), state)
+        return tool_result_error("File is not part of the workspace: $(args["path"])")
+    end
+
+    result = try
+        collect_diagnostics(
+            state;
+            uri = uri,
+            severity = get(args, "severity", nothing),
+            source = get(args, "source", nothing),
+            max_results = something(get(args, "max_results", nothing), DIAGNOSTIC_LIMIT_DEFAULT),
+            wait_for_ready = something(get(args, "wait_for_ready", nothing), false),
+        )
+    catch err
+        return tool_result_error("Failed to collect diagnostics: $(sprint(showerror, err))")
+    end
+
+    return tool_result_json(result)
+end
+
+# --- format_file ---
+
+function tool_format_file(state::AppState, args::Dict{String,Any})
+    jw = state.workspace
+    jw === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
+
+    path = args["path"]::String
+    uri = resolve_uri(path)
+    with_workspace_lock(() -> JuliaWorkspaces.has_file(jw, uri), state) ||
+        return tool_result_error("File is not part of the workspace: $path")
+
+    start_line = get(args, "start_line", nothing)
+    stop_line = get(args, "stop_line", nothing)
+    if (start_line === nothing) != (stop_line === nothing)
+        return tool_result_error("start_line and stop_line must be supplied together.")
+    end
+
+    edit = try
+        with_workspace_lock(state) do
+            start_line === nothing ?
+                JuliaWorkspaces.get_format_edits(jw, uri) :
+                JuliaWorkspaces.get_format_edits(jw, uri, start_line, stop_line)
+        end
+    catch err
+        return tool_result_error("Formatting failed: $(sprint(showerror, err))")
+    end
+
+    result = file_edit_to_dict(edit)
+    result["already_formatted"] = isempty(edit.edits)
+
+    if something(get(args, "apply", nothing), false) && !isempty(edit.edits)
+        file_path = JuliaWorkspaces.uri2filepath(uri)
+        with_workspace_lock(state) do
+            content = JuliaWorkspaces.get_text_file(jw, uri).content
+            write(file_path, apply_text_edits(content, edit.edits))
+            JuliaWorkspaces.update_file_from_disc!(jw, file_path)
+        end
+        # The watcher must not re-report the write we just made.
+        haskey(state.watcher_snapshot, file_path) && (state.watcher_snapshot[file_path] = mtime(file_path))
+
+        notify_resource_updated(state, "workspace://testitems")
+        notify_resource_updated(state, "workspace://detection-errors")
+        notify_resource_updated(state, "workspace://diagnostics")
+
+        result["applied"] = true
+    else
+        result["applied"] = false
+    end
+
+    return tool_result_json(result)
 end
 
 # --- list_testitems ---
@@ -151,7 +271,7 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any})
             work_units,
             setups,
             max_processes,
-            cts.token;
+            CancellationTokens.get_token(cts);
             coverage_root_uris=coverage_root_uris,
         )
     catch e
@@ -426,12 +546,15 @@ end
 function coverage_to_dicts(coverage_results)
     dicts = Any[]
     for fc in coverage_results
+        # `coverage` has one entry per source line; `nothing` means not instrumentable.
         push!(dicts, Dict{String,Any}(
             "uri" => fc.uri,
             "lines" => [
-                Dict{String,Any}("line" => lc.line, "count" => lc.count)
-                for lc in fc.lines
+                Dict{String,Any}("line" => i, "count" => c)
+                for (i, c) in enumerate(fc.coverage) if c !== nothing
             ],
+            "covered_lines" => count(c -> c !== nothing && c > 0, fc.coverage),
+            "coverable_lines" => count(!isnothing, fc.coverage),
         ))
     end
     return dicts

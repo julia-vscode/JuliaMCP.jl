@@ -52,6 +52,12 @@ function dynamic_resources(state::AppState)
         "description" => "Errors encountered during test item detection.",
         "mimeType" => "application/json",
     ))
+    push!(res, Dict{String,Any}(
+        "uri" => "workspace://diagnostics",
+        "name" => "Workspace Diagnostics",
+        "description" => "Syntax errors and lint warnings across the current workspace.",
+        "mimeType" => "application/json",
+    ))
     return res
 end
 
@@ -80,6 +86,12 @@ function read_resource(state::AppState, uri::String)
     if uri == "workspace://detection-errors"
         errors = collect_detection_errors(state)
         return [Dict{String,Any}("uri" => uri, "mimeType" => "application/json", "text" => JSON.json(errors))]
+    end
+
+    # workspace://diagnostics
+    if uri == "workspace://diagnostics"
+        diagnostics = collect_diagnostics(state)
+        return [Dict{String,Any}("uri" => uri, "mimeType" => "application/json", "text" => JSON.json(diagnostics))]
     end
 
     # testrun://{id}/summary

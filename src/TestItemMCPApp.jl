@@ -1,13 +1,20 @@
 module TestItemMCPApp
 
-import JSON, JSONRPC, JuliaWorkspaces, TestItemControllers, CancellationTokens
+import JSON, JSONRPC, JuliaWorkspaces, TestItemControllers
 import UUIDs, Dates, Logging
+
+# TestItemControllers vendors its own copy of CancellationTokens, and tokens
+# cross that boundary in `execute_testrun` — so we must use the same one it does
+# rather than a separately resolved package.
+const CancellationTokens = TestItemControllers.CancellationTokens
 
 include("types.jl")
 include("state.jl")
 include("mcp_logging.jl")
 include("mcp_protocol.jl")
 include("bridge.jl")
+include("diagnostics.jl")
+include("watcher.jl")
 include("callbacks.jl")
 include("mcp_tools.jl")
 include("mcp_resources.jl")

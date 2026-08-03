@@ -1,0 +1,5 @@
+name = "LintPkg"
+uuid = "5c8b2a41-7d3e-4b6a-9f12-3e4d5a6b7c02"
+version = "0.1.0"
+
+[deps]

@@ -13,19 +13,84 @@ function tool_definitions()
                         "items" => Dict{String,Any}("type" => "string"),
                         "description" => "Absolute paths to workspace folders to scan for test items.",
                     ),
+                    "watch" => Dict{String,Any}(
+                        "type" => "boolean",
+                        "description" => "Automatically refresh the workspace when files change on disk. Defaults to true; when disabled, call update_file after each edit.",
+                    ),
+                    "watch_interval" => Dict{String,Any}(
+                        "type" => "number",
+                        "description" => "Seconds between file system scans (default $(WATCH_INTERVAL_DEFAULT)).",
+                    ),
                 ),
                 "required" => ["folders"],
             ),
         ),
         Dict{String,Any}(
             "name" => "update_file",
-            "description" => "Notify the server that a file has changed on disk. Call this after editing source or test files so that test item detection is refreshed.",
+            "description" => "Notify the server that a file has changed on disk. Only needed when watching is disabled — by default the workspace refreshes automatically.",
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
                     "path" => Dict{String,Any}(
                         "type" => "string",
                         "description" => "Absolute file path that was changed.",
+                    ),
+                ),
+                "required" => ["path"],
+            ),
+        ),
+        Dict{String,Any}(
+            "name" => "get_diagnostics",
+            "description" => "Get syntax errors, lint warnings, and test item detection errors for the workspace, or for a single file. Results are grouped by file with 1-based line/column positions.",
+            "inputSchema" => Dict{String,Any}(
+                "type" => "object",
+                "properties" => Dict{String,Any}(
+                    "path" => Dict{String,Any}(
+                        "type" => "string",
+                        "description" => "Optional absolute file path or file:// URI. When omitted, diagnostics for the whole workspace are returned.",
+                    ),
+                    "severity" => Dict{String,Any}(
+                        "type" => "array",
+                        "items" => Dict{String,Any}("type" => "string"),
+                        "description" => "Only report these severities, e.g. [\"error\"] or [\"error\", \"warning\"].",
+                    ),
+                    "source" => Dict{String,Any}(
+                        "type" => "array",
+                        "items" => Dict{String,Any}("type" => "string"),
+                        "description" => "Only report diagnostics from these sources, e.g. [\"JuliaSyntax.jl\"] or [\"StaticLint.jl\"].",
+                    ),
+                    "max_results" => Dict{String,Any}(
+                        "type" => "integer",
+                        "description" => "Maximum number of diagnostics to return (default $(DIAGNOSTIC_LIMIT_DEFAULT)). The response reports whether it was truncated.",
+                    ),
+                    "wait_for_ready" => Dict{String,Any}(
+                        "type" => "boolean",
+                        "description" => "Wait for environment-dependent analysis to finish before reporting. Slower, but required for checks such as unresolved imports and missing references.",
+                    ),
+                ),
+            ),
+        ),
+        Dict{String,Any}(
+            "name" => "format_file",
+            "description" => "Format a Julia file using the style from the nearest juliaformat.toml (JuliaFormatter by default, or Runic when style=\"runic\"). Returns the edits by default; set apply=true to write them to disk.",
+            "inputSchema" => Dict{String,Any}(
+                "type" => "object",
+                "properties" => Dict{String,Any}(
+                    "path" => Dict{String,Any}(
+                        "type" => "string",
+                        "description" => "Absolute file path or file:// URI of the file to format.",
+                    ),
+                    "start_line" => Dict{String,Any}(
+                        "type" => "integer",
+                        "description" => "First line to format (1-based, inclusive). Requires stop_line. Formats the whole file when omitted.",
+                    ),
+                    "stop_line" => Dict{String,Any}(
+                        "type" => "integer",
+                        "description" => "Last line to format (1-based, inclusive). Requires start_line.",
+                    ),
+                    "apply" => Dict{String,Any}(
+                        "type" => "boolean",
+                        "description" => "Write the formatted result to disk and refresh the workspace. Defaults to false, which only returns the edits.",
                     ),
                 ),
                 "required" => ["path"],
@@ -104,7 +169,7 @@ function tool_definitions()
                     ),
                     "mode" => Dict{String,Any}(
                         "type" => "string",
-                        "enum" => ["Run", "Coverage"],
+                        "enum" => ["Normal", "Coverage"],
                         "description" => "Execution mode (default: \"Run\").",
                     ),
                     "timeout" => Dict{String,Any}(

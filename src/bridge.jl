@@ -8,6 +8,8 @@ function resolve_testitems(state::AppState; filter=nothing)
     setups = TestItemControllers.TestSetupDetail[]
     item_package_info = Dict{String, NamedTuple{(:package_name, :package_uri, :project_uri, :env_content_hash), Tuple{String, Union{Nothing,String}, Union{Nothing,String}, Union{Nothing,String}}}}()
 
+    lock(state.workspace_lock)
+    try
     for (uri, file_info) in pairs(JuliaWorkspaces.get_test_items(jw))
         env = JuliaWorkspaces.get_test_env(jw, uri)
         textfile = JuliaWorkspaces.get_text_file(jw, uri)
@@ -18,6 +20,9 @@ function resolve_testitems(state::AppState; filter=nothing)
                 continue
             end
 
+            item_pos = JuliaWorkspaces.position_at(textfile.content, first(item.range))
+            code_pos = JuliaWorkspaces.position_at(textfile.content, first(item.code_range))
+
             push!(items, TestItemControllers.TestItemDetail(
                 item.id,
                 string(item.uri),
@@ -26,11 +31,11 @@ function resolve_testitems(state::AppState; filter=nothing)
                 env.package_uri === nothing ? "" : string(env.package_uri),
                 item.option_default_imports,
                 string.(item.option_setup),
-                JuliaWorkspaces.position_at(textfile.content, item.code_range.start)[1],
-                JuliaWorkspaces.position_at(textfile.content, item.code_range.start)[2],
+                item_pos.line,
+                item_pos.column,
                 textfile.content.content[item.code_range],
-                JuliaWorkspaces.position_at(textfile.content, item.code_range.stop)[1],
-                JuliaWorkspaces.position_at(textfile.content, item.code_range.stop)[2],
+                code_pos.line,
+                code_pos.column,
             ))
             item_package_info[item.id] = (
                 package_name = env.package_name,
@@ -42,16 +47,20 @@ function resolve_testitems(state::AppState; filter=nothing)
 
         for setup in file_info.testsetups
             env.package_uri === nothing && continue
+            setup_pos = JuliaWorkspaces.position_at(textfile.content, first(setup.code_range))
             push!(setups, TestItemControllers.TestSetupDetail(
                 string(env.package_uri),
                 string(setup.name),
                 string(setup.kind),
                 string(uri),
-                JuliaWorkspaces.position_at(textfile.content, setup.code_range.start)[1],
-                JuliaWorkspaces.position_at(textfile.content, setup.code_range.start)[2],
+                setup_pos.line,
+                setup_pos.column,
                 textfile.content.content[setup.code_range],
             ))
         end
+    end
+    finally
+        unlock(state.workspace_lock)
     end
 
     return items, setups, item_package_info
@@ -93,7 +102,7 @@ function build_test_environments(params::Dict{String,Any}, item_package_info::Di
     julia_num_threads = let v = get(params, "julia_num_threads", nothing)
         v isa String ? v : nothing
     end
-    mode = get(params, "mode", "Run")::String
+    mode = get(params, "mode", "Normal")::String
     max_processes = get(params, "max_workers", min(Sys.CPU_THREADS, 8))::Int
     coverage_root_uris = let v = get(params, "coverage_root_uris", nothing)
         v === nothing ? nothing : convert(Vector{String}, v)
@@ -139,15 +148,17 @@ function collect_detection_errors(state::AppState)
     jw = state.workspace
     jw === nothing && return Any[]
     errors = Any[]
-    for (uri, file_info) in pairs(JuliaWorkspaces.get_test_items(jw))
-        for e in file_info.testerrors
-            push!(errors, Dict{String,Any}(
-                "uri" => string(e.uri),
-                "id" => e.id,
-                "name" => e.name,
-                "message" => e.message,
-                "range" => Dict("start" => e.range.start, "stop" => e.range.stop),
-            ))
+    with_workspace_lock(state) do
+        for (uri, file_info) in pairs(JuliaWorkspaces.get_test_items(jw))
+            for e in file_info.testerrors
+                push!(errors, Dict{String,Any}(
+                    "uri" => string(e.uri),
+                    "id" => e.id,
+                    "name" => e.name,
+                    "message" => e.message,
+                    "range" => Dict("start" => e.range.start, "stop" => e.range.stop),
+                ))
+            end
         end
     end
     return errors
@@ -157,21 +168,23 @@ function collect_testitems_list(state::AppState; filter=nothing)
     jw = state.workspace
     jw === nothing && return Any[]
     result = Any[]
-    for (uri, file_info) in pairs(JuliaWorkspaces.get_test_items(jw))
-        env = JuliaWorkspaces.get_test_env(jw, uri)
-        for item in file_info.testitems
-            if filter !== nothing && !passes_filter(item, env, uri, filter)
-                continue
+    with_workspace_lock(state) do
+        for (uri, file_info) in pairs(JuliaWorkspaces.get_test_items(jw))
+            env = JuliaWorkspaces.get_test_env(jw, uri)
+            for item in file_info.testitems
+                if filter !== nothing && !passes_filter(item, env, uri, filter)
+                    continue
+                end
+                push!(result, Dict{String,Any}(
+                    "id" => item.id,
+                    "name" => item.name,
+                    "uri" => string(item.uri),
+                    "package_name" => env.package_name,
+                    "tags" => string.(item.option_tags),
+                    "line" => item.range.start,
+                    "setup_names" => string.(item.option_setup),
+                ))
             end
-            push!(result, Dict{String,Any}(
-                "id" => item.id,
-                "name" => item.name,
-                "uri" => string(item.uri),
-                "package_name" => env.package_name,
-                "tags" => string.(item.option_tags),
-                "line" => item.range.start,
-                "setup_names" => string.(item.option_setup),
-            ))
         end
     end
     return result
