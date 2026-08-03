@@ -96,6 +96,21 @@ function passes_filter(item, env, uri, filter::Dict)
     return true
 end
 
+"""
+    shim_env_overrides()
+
+Environment overrides for test processes that undo the Pkg app shim launching this
+server. The shim pins `JULIA_LOAD_PATH`/`JULIA_DEPOT_PATH` to this app's own
+environment, which a test process must not inherit: it replaces the default load
+path, so `@` no longer resolves and the test process cannot load its own
+environment. `nothing` tells TestItemControllers to drop the variable.
+"""
+shim_env_overrides() = Dict{String,Union{String,Nothing}}(
+    "JULIA_LOAD_PATH" => nothing,
+    "JULIA_PROJECT" => nothing,
+    "JULIA_DEPOT_PATH" => nothing,
+)
+
 function build_test_environments(params::Dict{String,Any}, item_package_info::Dict)
     julia_cmd = get(params, "julia_cmd", "julia")::String
     julia_args = convert(Vector{String}, get(params, "julia_args", String[]))
@@ -126,7 +141,7 @@ function build_test_environments(params::Dict{String,Any}, item_package_info::Di
             julia_cmd,
             julia_args,
             julia_num_threads,
-            Dict{String,Union{String,Nothing}}(),
+            shim_env_overrides(),
             mode,
             pkg.package_name,
             something(pkg.package_uri, ""),

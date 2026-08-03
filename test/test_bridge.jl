@@ -118,6 +118,26 @@ end
     end
 end
 
+@testitem "test environments drop the app shim's Julia env vars" setup=[MCPTestHelpers] begin
+    using .MCPTestHelpers
+    using TestItemMCPApp: JuliaWorkspaces
+
+    MCPTestHelpers.with_app_state() do state
+        pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
+        state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
+
+        _, _, pkg_info = TestItemMCPApp.resolve_testitems(state)
+        envs, _, _, _, _ = TestItemMCPApp.build_test_environments(Dict{String,Any}(), pkg_info)
+
+        # A `nothing` value makes TestItemControllers remove the variable from the
+        # test process environment. Inheriting the shim's JULIA_LOAD_PATH would
+        # leave the test process unable to load its own environment.
+        for var in ("JULIA_LOAD_PATH", "JULIA_PROJECT", "JULIA_DEPOT_PATH")
+            @test only(envs).julia_env[var] === nothing
+        end
+    end
+end
+
 @testitem "passes_filter" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
     using TestItemMCPApp: JuliaWorkspaces, passes_filter

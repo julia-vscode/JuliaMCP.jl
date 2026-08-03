@@ -53,6 +53,32 @@ end
     end
 end
 
+@testitem "tests run when launched through a Pkg app shim" setup=[MCPTestHelpers] tags=[:e2e] begin
+    using .MCPTestHelpers
+
+    # The `juliamcp` shim pins these to this app's own environment. A test process
+    # that inherited them could not load its own environment and would die on startup.
+    shim_env = (
+        "JULIA_LOAD_PATH" => dirname(dirname(pathof(TestItemMCPApp))),
+        "JULIA_PROJECT" => dirname(dirname(pathof(TestItemMCPApp))),
+        "JULIA_DEPOT_PATH" => first(DEPOT_PATH),
+    )
+
+    withenv(shim_env...) do
+        MCPTestHelpers.with_mcp_server() do client
+            pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
+            MCPTestHelpers.call_tool(client, "set_workspace_folders",
+                Dict{String,Any}("folders" => [pkg], "watch" => false))
+
+            report = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "run_testitems",
+                Dict{String,Any}("name_pattern" => "^passing\$")))
+
+            @test report["summary"]["passed"] == 1
+            @test report["summary"]["errored"] == 0
+        end
+    end
+end
+
 @testitem "rerun_failed re-runs only the failures" setup=[MCPTestHelpers] tags=[:e2e] begin
     using .MCPTestHelpers
 
