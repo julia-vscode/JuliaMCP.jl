@@ -235,7 +235,10 @@ end
         @test byname["uses setup"]["setup_names"] == ["SharedFixture"]
         @test byname["passing"]["package_name"] == "BasicPkg"
         @test endswith(byname["passing"]["uri"], "test_basics.jl")
-        @test byname["passing"]["line"] isa Int
+        # 1-based line/column, not the raw byte offset into the file.
+        @test byname["passing"]["line"] == 9
+        @test byname["passing"]["column"] == 1
+        @test byname["no default imports"]["line"] == 36
     end
 end
 
@@ -250,6 +253,30 @@ end
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
         @test collect_detection_errors(state) == Any[]
+    end
+end
+
+@testitem "collect_detection_errors reports line positions" setup=[MCPTestHelpers] begin
+    using .MCPTestHelpers
+    using TestItemMCPApp: JuliaWorkspaces, collect_detection_errors
+
+    MCPTestHelpers.with_app_state() do state
+        pkg = MCPTestHelpers.copy_testdata("BasicPkg")
+        write(joinpath(pkg, "test", "test_bad.jl"), """
+        # a comment
+        @testitem "bad kwarg" nonsense=1 begin
+            @test true
+        end
+        """)
+        state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
+
+        errors = collect_detection_errors(state)
+        err = only(errors)
+        # 1-based line number, not the raw byte offset into the file.
+        @test err["line"] == 2
+        @test err["column"] == 1
+        @test err["range"]["start"]["line"] == 2
+        @test err["range"]["stop"]["line"] == 4
     end
 end
 

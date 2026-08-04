@@ -165,13 +165,21 @@ function collect_detection_errors(state::AppState)
     errors = Any[]
     with_workspace_lock(state) do
         for (uri, file_info) in pairs(JuliaWorkspaces.get_test_items(jw))
+            textfile = JuliaWorkspaces.get_text_file(jw, uri)
             for e in file_info.testerrors
+                start_pos = JuliaWorkspaces.position_at(textfile.content, first(e.range))
+                stop_pos = JuliaWorkspaces.position_at(textfile.content, last(e.range))
                 push!(errors, Dict{String,Any}(
                     "uri" => string(e.uri),
                     "id" => e.id,
                     "name" => e.name,
                     "message" => e.message,
-                    "range" => Dict("start" => e.range.start, "stop" => e.range.stop),
+                    "line" => start_pos.line,
+                    "column" => start_pos.column,
+                    "range" => Dict(
+                        "start" => Dict("line" => start_pos.line, "column" => start_pos.column),
+                        "stop" => Dict("line" => stop_pos.line, "column" => stop_pos.column),
+                    ),
                 ))
             end
         end
@@ -186,17 +194,20 @@ function collect_testitems_list(state::AppState; filter=nothing)
     with_workspace_lock(state) do
         for (uri, file_info) in pairs(JuliaWorkspaces.get_test_items(jw))
             env = JuliaWorkspaces.get_test_env(jw, uri)
+            textfile = JuliaWorkspaces.get_text_file(jw, uri)
             for item in file_info.testitems
                 if filter !== nothing && !passes_filter(item, env, uri, filter)
                     continue
                 end
+                item_pos = JuliaWorkspaces.position_at(textfile.content, first(item.range))
                 push!(result, Dict{String,Any}(
                     "id" => item.id,
                     "name" => item.name,
                     "uri" => string(item.uri),
                     "package_name" => env.package_name,
                     "tags" => string.(item.option_tags),
-                    "line" => item.range.start,
+                    "line" => item_pos.line,
+                    "column" => item_pos.column,
                     "setup_names" => string.(item.option_setup),
                 ))
             end
