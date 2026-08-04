@@ -1,5 +1,5 @@
 @testitem "safe_byte_slice" begin
-    using TestItemMCPApp: safe_byte_slice
+    using JuliaMCP: safe_byte_slice
 
     s = "hello"
     @test safe_byte_slice(s, 1, 6) == "hello"
@@ -18,8 +18,8 @@
 end
 
 @testitem "resolve_uri accepts paths and URIs" begin
-    using TestItemMCPApp: resolve_uri
-    using TestItemMCPApp: JuliaWorkspaces
+    using JuliaMCP: resolve_uri
+    using JuliaMCP: JuliaWorkspaces
 
     path = abspath(joinpath(@__DIR__, "runtests.jl"))
     from_path = resolve_uri(path)
@@ -145,7 +145,7 @@ end
 
 @testitem "diagnostic positions match the source text" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces, collect_diagnostics
+    using JuliaMCP: JuliaWorkspaces, collect_diagnostics
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "LintPkg")

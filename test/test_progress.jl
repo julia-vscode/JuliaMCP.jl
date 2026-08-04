@@ -1,6 +1,6 @@
 @testitem "report_progress! only ever increases" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: TestRunRecord, TestItemResult, report_progress!
+    using JuliaMCP: TestRunRecord, TestItemResult, report_progress!
     using Dates
 
     MCPTestHelpers.with_app_state() do state
@@ -85,7 +85,7 @@ end
 end
 
 @testitem "progress_token_of accepts strings and integers only" begin
-    using TestItemMCPApp: progress_token_of
+    using JuliaMCP: progress_token_of
 
     @test progress_token_of(Dict{String,Any}()) === nothing
     @test progress_token_of(Dict{String,Any}("_meta" => Dict{String,Any}())) === nothing

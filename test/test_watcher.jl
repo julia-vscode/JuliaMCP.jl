@@ -1,5 +1,5 @@
 @testitem "is_watched_path" begin
-    using TestItemMCPApp: is_watched_path
+    using JuliaMCP: is_watched_path
 
     @test is_watched_path("/a/b/foo.jl")
     @test is_watched_path("/a/b/Project.toml")
@@ -14,7 +14,7 @@ end
 
 @testitem "scan_folders finds relevant files and skips noise" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: scan_folders
+    using JuliaMCP: scan_folders
 
     dir = mktempdir()
     write(joinpath(dir, "a.jl"), "x = 1")
@@ -38,7 +38,7 @@ end
 end
 
 @testitem "diff_snapshots" begin
-    using TestItemMCPApp: diff_snapshots
+    using JuliaMCP: diff_snapshots
 
     old = Dict("a" => 1.0, "b" => 2.0, "c" => 3.0)
     new = Dict("a" => 1.0, "b" => 9.0, "d" => 4.0)
@@ -160,17 +160,17 @@ end
 
     MCPTestHelpers.with_app_state() do state
         state.folders = [first_pkg]
-        TestItemMCPApp.start_watcher!(state; interval=0.05)
+        JuliaMCP.start_watcher!(state; interval=0.05)
         first_task = state.watcher_task
         @test first_task !== nothing
 
         state.folders = [second_pkg]
-        TestItemMCPApp.start_watcher!(state; interval=0.05)
+        JuliaMCP.start_watcher!(state; interval=0.05)
         @test state.watcher_task !== first_task
         @test MCPTestHelpers.timed_wait(() -> istaskdone(first_task), 10.0)
 
         second_task = state.watcher_task
-        TestItemMCPApp.stop_watcher!(state)
+        JuliaMCP.stop_watcher!(state)
         @test state.watcher_task === nothing
         @test MCPTestHelpers.timed_wait(() -> istaskdone(second_task), 10.0)
     end
@@ -178,7 +178,7 @@ end
 
 @testitem "apply_file_changes! tolerates unreadable paths" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces, apply_file_changes!
+    using JuliaMCP: JuliaWorkspaces, apply_file_changes!
 
     pkg = MCPTestHelpers.copy_testdata("BasicPkg")
 

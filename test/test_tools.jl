@@ -1,5 +1,5 @@
 @testitem "tool schemas are well formed" begin
-    defs = TestItemMCPApp.tool_definitions()
+    defs = JuliaMCP.tool_definitions()
 
     @test !isempty(defs)
     names = [d["name"] for d in defs]
@@ -24,11 +24,11 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_app_state() do state
-        for d in TestItemMCPApp.tool_definitions()
+        for d in JuliaMCP.tool_definitions()
             # A routed tool either succeeds or fails on its own arguments/state;
             # only an unrouted one raises "Unknown tool".
             err = try
-                TestItemMCPApp.handle_tool_call(state, d["name"], Dict{String,Any}())
+                JuliaMCP.handle_tool_call(state, d["name"], Dict{String,Any}())
                 nothing
             catch e
                 e
@@ -38,7 +38,7 @@ end
             end
         end
 
-        @test_throws ErrorException TestItemMCPApp.handle_tool_call(state, "no_such_tool", Dict{String,Any}())
+        @test_throws ErrorException JuliaMCP.handle_tool_call(state, "no_such_tool", Dict{String,Any}())
     end
 end
 
@@ -86,7 +86,7 @@ end
 
 @testitem "get_testitem_detail reports results for a run" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: TestRunRecord, TestItemResult, handle_tool_call
+    using JuliaMCP: TestRunRecord, TestItemResult, handle_tool_call
     using Dates
 
     MCPTestHelpers.with_app_state() do state

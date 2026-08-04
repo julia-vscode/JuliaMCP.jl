@@ -110,9 +110,9 @@ end
 end
 
 @testitem "apply_text_edits" begin
-    using TestItemMCPApp: apply_text_edits, offset_of
-    using TestItemMCPApp: JuliaWorkspaces
-    using TestItemMCPApp.JuliaWorkspaces: SourceText, Position
+    using JuliaMCP: apply_text_edits, offset_of
+    using JuliaMCP: JuliaWorkspaces
+    using JuliaMCP.JuliaWorkspaces: SourceText, Position
 
     content = SourceText("one\ntwo\nthree\n", "julia")
 

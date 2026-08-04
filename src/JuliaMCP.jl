@@ -1,4 +1,4 @@
-module TestItemMCPApp
+module JuliaMCP
 
 import JSON, JSONRPC, JuliaWorkspaces, TestItemControllers
 import JuliaSessionControllers
@@ -35,4 +35,4 @@ function (@main)(ARGS)
     end
 end
 
-end # module TestItemMCPApp
+end # module JuliaMCP

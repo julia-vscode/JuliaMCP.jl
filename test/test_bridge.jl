@@ -1,6 +1,6 @@
 @testitem "resolve_testitems produces valid source positions" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces
+    using JuliaMCP: JuliaWorkspaces
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
@@ -8,7 +8,7 @@
 
         # Regression: this used to throw a MethodError because `position_at`
         # returns a `Position` struct, which was being indexed with `[1]`/`[2]`.
-        items, setups, pkg_info = TestItemMCPApp.resolve_testitems(state)
+        items, setups, pkg_info = JuliaMCP.resolve_testitems(state)
 
         @test length(items) == 7
         @test length(setups) == 2
@@ -32,13 +32,13 @@ end
 
 @testitem "line/column point at the macro call, code_line/code_column at the body" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces
+    using JuliaMCP: JuliaWorkspaces
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
 
-        items, _, _ = TestItemMCPApp.resolve_testitems(state)
+        items, _, _ = JuliaMCP.resolve_testitems(state)
         passing = only(filter(i -> i.label == "passing", items))
 
         source = read(joinpath(pkg, "test", "test_basics.jl"), String)
@@ -54,13 +54,13 @@ end
 
 @testitem "setups are carried through with their names" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces
+    using JuliaMCP: JuliaWorkspaces
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
 
-        items, setups, _ = TestItemMCPApp.resolve_testitems(state)
+        items, setups, _ = JuliaMCP.resolve_testitems(state)
 
         byname = Dict(s.name => s for s in setups)
         @test occursin("magic_number", byname["SharedFixture"].code)
@@ -78,13 +78,13 @@ end
 
 @testitem "default_imports option is carried through" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces
+    using JuliaMCP: JuliaWorkspaces
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
 
-        items, _, _ = TestItemMCPApp.resolve_testitems(state)
+        items, _, _ = JuliaMCP.resolve_testitems(state)
 
         @test only(filter(i -> i.label == "passing", items)).option_default_imports
         @test !only(filter(i -> i.label == "no default imports", items)).option_default_imports
@@ -93,16 +93,16 @@ end
 
 @testitem "build_test_environments groups items by package" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces
+    using JuliaMCP: JuliaWorkspaces
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
 
-        _, _, pkg_info = TestItemMCPApp.resolve_testitems(state)
+        _, _, pkg_info = JuliaMCP.resolve_testitems(state)
         args = Dict{String,Any}("julia_cmd" => "julia", "mode" => "Coverage", "max_workers" => 3)
         envs, env_for_item, max_processes, coverage_roots, log_level =
-            TestItemMCPApp.build_test_environments(args, pkg_info)
+            JuliaMCP.build_test_environments(args, pkg_info)
 
         @test length(envs) == 1
         @test only(envs).package_name == "BasicPkg"
@@ -120,14 +120,14 @@ end
 
 @testitem "test environments drop the app shim's Julia env vars" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces
+    using JuliaMCP: JuliaWorkspaces
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
 
-        _, _, pkg_info = TestItemMCPApp.resolve_testitems(state)
-        envs, _, _, _, _ = TestItemMCPApp.build_test_environments(Dict{String,Any}(), pkg_info)
+        _, _, pkg_info = JuliaMCP.resolve_testitems(state)
+        envs, _, _, _, _ = JuliaMCP.build_test_environments(Dict{String,Any}(), pkg_info)
 
         # A `nothing` value makes TestItemControllers remove the variable from the
         # test process environment. Inheriting the shim's JULIA_LOAD_PATH would
@@ -140,7 +140,7 @@ end
 
 @testitem "passes_filter" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces, passes_filter
+    using JuliaMCP: JuliaWorkspaces, passes_filter
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
@@ -175,7 +175,7 @@ end
 end
 
 @testitem "build_filter" begin
-    using TestItemMCPApp: build_filter
+    using JuliaMCP: build_filter
 
     @test build_filter(Dict{String,Any}()) === nothing
     @test build_filter(Dict{String,Any}("items" => nothing, "tags" => nothing)) === nothing
@@ -197,7 +197,7 @@ end
 end
 
 @testitem "coverage_to_dicts matches the FileCoverage layout" begin
-    using TestItemMCPApp: coverage_to_dicts
+    using JuliaMCP: coverage_to_dicts
     using TestItemControllers: FileCoverage
 
     # Regression: this used to read `fc.lines`, which does not exist —
@@ -220,7 +220,7 @@ end
 
 @testitem "collect_testitems_list reports metadata" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces, collect_testitems_list
+    using JuliaMCP: JuliaWorkspaces, collect_testitems_list
 
     MCPTestHelpers.with_app_state() do state
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
@@ -244,7 +244,7 @@ end
 
 @testitem "collect_detection_errors surfaces malformed test items" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces, collect_detection_errors
+    using JuliaMCP: JuliaWorkspaces, collect_detection_errors
 
     MCPTestHelpers.with_app_state() do state
         # No workspace configured yet.
@@ -258,7 +258,7 @@ end
 
 @testitem "collect_detection_errors reports line positions" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JuliaWorkspaces, collect_detection_errors
+    using JuliaMCP: JuliaWorkspaces, collect_detection_errors
 
     MCPTestHelpers.with_app_state() do state
         pkg = MCPTestHelpers.copy_testdata("BasicPkg")
@@ -284,6 +284,6 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_app_state() do state
-        @test_throws ErrorException TestItemMCPApp.resolve_testitems(state)
+        @test_throws ErrorException JuliaMCP.resolve_testitems(state)
     end
 end

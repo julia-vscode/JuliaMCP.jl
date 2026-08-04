@@ -71,8 +71,8 @@ end
     # The `juliamcp` shim pins these to this app's own environment. A test process
     # that inherited them could not load its own environment and would die on startup.
     shim_env = (
-        "JULIA_LOAD_PATH" => dirname(dirname(pathof(TestItemMCPApp))),
-        "JULIA_PROJECT" => dirname(dirname(pathof(TestItemMCPApp))),
+        "JULIA_LOAD_PATH" => dirname(dirname(pathof(JuliaMCP))),
+        "JULIA_PROJECT" => dirname(dirname(pathof(JuliaMCP))),
         "JULIA_DEPOT_PATH" => first(DEPOT_PATH),
     )
 

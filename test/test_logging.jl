@@ -1,6 +1,6 @@
 @testitem "log level gating" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: set_log_level!, MCP_LOG_LEVELS
+    using JuliaMCP: set_log_level!, MCP_LOG_LEVELS
 
     MCPTestHelpers.with_app_state() do state
         @test state.log_level == :info
@@ -19,7 +19,7 @@
 end
 
 @testitem "MCP log levels are ordered by severity" begin
-    using TestItemMCPApp: MCP_LOG_LEVELS
+    using JuliaMCP: MCP_LOG_LEVELS
 
     ordered = [:debug, :info, :notice, :warning, :error, :critical, :alert, :emergency]
     @test sort(collect(keys(MCP_LOG_LEVELS)), by = k -> MCP_LOG_LEVELS[k]) == ordered
@@ -41,7 +41,7 @@ end
 
 @testitem "log helpers write to stderr" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: mcp_warn, mcp_debug, set_log_level!
+    using JuliaMCP: mcp_warn, mcp_debug, set_log_level!
 
     MCPTestHelpers.with_app_state() do state
         set_log_level!(state, "debug")

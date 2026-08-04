@@ -1,6 +1,6 @@
 @testitem "run payload is compact and carries no detail" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: TestRunRecord, TestItemResult, collect_run_payload, run_summary
+    using JuliaMCP: TestRunRecord, TestItemResult, collect_run_payload, run_summary
     using Dates
 
     MCPTestHelpers.with_app_state() do state
@@ -36,7 +36,7 @@ end
 
 @testitem "get_testitem_detail batches, truncates and reports unknown ids" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: TestRunRecord, TestItemResult, handle_tool_call
+    using JuliaMCP: TestRunRecord, TestItemResult, handle_tool_call
     using Dates
 
     MCPTestHelpers.with_app_state() do state
@@ -83,7 +83,7 @@ end
 
 @testitem "get_testitem_detail needs at least one id" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: handle_tool_call
+    using JuliaMCP: handle_tool_call
 
     MCPTestHelpers.with_app_state() do state
         result = handle_tool_call(state, "get_testitem_detail", Dict{String,Any}("testrun_id" => "run-1"))

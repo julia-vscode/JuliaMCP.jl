@@ -1,6 +1,6 @@
 # mcp_protocol.jl — MCP protocol constants and helpers
 
-const MCP_SERVER_NAME = "TestItemMCPApp"
+const MCP_SERVER_NAME = "JuliaMCP"
 const MCP_SERVER_VERSION = "0.1.0"
 
 function server_capabilities()

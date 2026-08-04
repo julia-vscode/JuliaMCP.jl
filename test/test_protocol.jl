@@ -4,8 +4,8 @@
     MCPTestHelpers.with_mcp_server(initialize=false) do client
         result = MCPTestHelpers.initialize!(client)
 
-        @test result["protocolVersion"] == TestItemMCPApp.MCP_PROTOCOL_VERSION
-        @test result["serverInfo"]["name"] == "TestItemMCPApp"
+        @test result["protocolVersion"] == JuliaMCP.MCP_PROTOCOL_VERSION
+        @test result["serverInfo"]["name"] == "JuliaMCP"
         @test haskey(result["serverInfo"], "version")
         @test result["capabilities"]["resources"]["subscribe"] == true
         @test result["capabilities"]["resources"]["listChanged"] == true
@@ -26,7 +26,7 @@ end
 
 @testitem "unknown method returns -32601" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JSONRPC
+    using JuliaMCP: JSONRPC
 
     MCPTestHelpers.with_mcp_server() do client
         err = try
@@ -47,7 +47,7 @@ end
     MCPTestHelpers.with_mcp_server() do client
         result = MCPTestHelpers.request(client, "tools/list", Dict{String,Any}())
         names = [t["name"] for t in result["tools"]]
-        expected = [t["name"] for t in TestItemMCPApp.tool_definitions()]
+        expected = [t["name"] for t in JuliaMCP.tool_definitions()]
 
         @test sort(names) == sort(expected)
         @test length(names) == length(unique(names))
@@ -71,7 +71,7 @@ end
 
 @testitem "logging/setLevel is gone" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JSONRPC
+    using JuliaMCP: JSONRPC
 
     # Removed with the deprecated MCP Logging capability.
     MCPTestHelpers.with_mcp_server() do client

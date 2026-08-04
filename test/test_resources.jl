@@ -27,7 +27,7 @@ end
 
 @testitem "reading an unknown resource errors" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: JSONRPC
+    using JuliaMCP: JSONRPC
 
     MCPTestHelpers.with_mcp_server() do client
         @test_throws JSONRPC.JSONRPCError MCPTestHelpers.read_resource(client, "bogus://nothing")
@@ -37,7 +37,7 @@ end
 
 @testitem "read_resource URI routing" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: read_resource, TestRunRecord, TestItemResult, run_summary
+    using JuliaMCP: read_resource, TestRunRecord, TestItemResult, run_summary
     using Dates
 
     MCPTestHelpers.with_app_state() do state
@@ -67,7 +67,7 @@ end
 
 @testitem "dynamic_resources lists known runs" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: dynamic_resources, TestRunRecord, TestItemResult
+    using JuliaMCP: dynamic_resources, TestRunRecord, TestItemResult
     using Dates
 
     MCPTestHelpers.with_app_state() do state
@@ -82,19 +82,19 @@ end
 
 @testitem "subscribe and unsubscribe gate update notifications" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using TestItemMCPApp: notify_resource_updated
+    using JuliaMCP: notify_resource_updated
 
     MCPTestHelpers.with_app_state() do state
         @test isempty(state.subscriptions)
 
-        TestItemMCPApp.handle_resources_subscribe(state, Dict("uri" => "workspace://testitems"))
+        JuliaMCP.handle_resources_subscribe(state, Dict("uri" => "workspace://testitems"))
         @test "workspace://testitems" in state.subscriptions
 
-        TestItemMCPApp.handle_resources_unsubscribe(state, Dict("uri" => "workspace://testitems"))
+        JuliaMCP.handle_resources_unsubscribe(state, Dict("uri" => "workspace://testitems"))
         @test !("workspace://testitems" in state.subscriptions)
 
         # Unsubscribing something that was never subscribed must not throw.
-        TestItemMCPApp.handle_resources_unsubscribe(state, Dict("uri" => "workspace://testitems"))
+        JuliaMCP.handle_resources_unsubscribe(state, Dict("uri" => "workspace://testitems"))
         # Notifying an unsubscribed URI is a no-op rather than an error.
         notify_resource_updated(state, "workspace://testitems")
     end

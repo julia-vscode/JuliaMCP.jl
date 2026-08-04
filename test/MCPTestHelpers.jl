@@ -2,8 +2,8 @@
 
 using Test
 using Sockets
-using TestItemMCPApp
-using TestItemMCPApp: JSONRPC, JSON
+using JuliaMCP
+using JuliaMCP: JSONRPC, JSON
 
 const TESTDATA_DIR = joinpath(dirname(@__DIR__), "testdata")
 
@@ -48,14 +48,14 @@ function with_app_state(f)
         end
     catch
     end
-    state = TestItemMCPApp.AppState(endpoint)
+    state = JuliaMCP.AppState(endpoint)
     try
         f(state)
     finally
         try
-            TestItemMCPApp.stop_watcher!(state)
-            TestItemMCPApp.shutdown_controller!(state)
-            TestItemMCPApp.shutdown_sessions!(state)
+            JuliaMCP.stop_watcher!(state)
+            JuliaMCP.shutdown_controller!(state)
+            JuliaMCP.shutdown_sessions!(state)
         catch
         end
         close(endpoint)
@@ -87,7 +87,7 @@ Perform the MCP `initialize` handshake and return the server's result.
 """
 function initialize!(c::MCPClient)
     result = request(c, "initialize", Dict{String,Any}(
-        "protocolVersion" => TestItemMCPApp.MCP_PROTOCOL_VERSION,
+        "protocolVersion" => JuliaMCP.MCP_PROTOCOL_VERSION,
         "capabilities" => Dict{String,Any}(),
         "clientInfo" => Dict{String,Any}("name" => "MCPTestHelpers", "version" => "0.0.1"),
     ))
@@ -148,7 +148,7 @@ unless `initialize=false`.
 function with_mcp_server(f; initialize=true)
     server_io, client_io, listener = named_pipe_pair()
     server_task = @async try
-        TestItemMCPApp.run_server(server_io, server_io)
+        JuliaMCP.run_server(server_io, server_io)
     catch err
         @error "MCP server task failed" exception = (err, catch_backtrace())
     end
