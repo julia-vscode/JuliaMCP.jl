@@ -1,0 +1,8 @@
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+*.cov
+*.log
+.vscode
+Manifest.toml
+docs/build
