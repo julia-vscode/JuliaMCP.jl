@@ -45,7 +45,7 @@ mutable struct ProcessInfo
 end
 
 """
-A Julia session managed by JuliaSessionsControllers, plus the output the app has seen for
+A Julia session managed by JuliaSessionControllers, plus the output the app has seen for
 it. `request_outputs` is keyed by the request id the caller supplied to `JSC.evaluate`.
 """
 mutable struct SessionRecord

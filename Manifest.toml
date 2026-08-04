@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "a9578f726034806230e5eea37041aea69f01fab8"
+project_hash = "77e5e9dda6060c49a189ede3098813266c12e9df"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -100,9 +100,9 @@ git-tree-sha1 = "734a648c54e0512112049150965e85c887ae7fa3"
 uuid = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
 version = "2.4.0"
 
-[[deps.JuliaSessionsControllers]]
+[[deps.JuliaSessionControllers]]
 deps = ["Dates", "Mmap", "Sockets", "UUIDs", "Unicode"]
-path = "C:/Users/david/.julia/dev/JuliaSessionsControllers"
+path = "C:/Users/david/.julia/dev/JuliaSessionControllers"
 uuid = "198e8358-5c10-4522-8616-de55b5f2a154"
 version = "0.1.0"
 

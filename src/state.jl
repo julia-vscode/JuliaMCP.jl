@@ -12,7 +12,7 @@ mutable struct AppState
     log_level::Symbol  # MCP log level: :debug, :info, :notice, :warning, :error, :critical, :alert, :emergency
     cancellation_sources::Dict{String,CancellationTokens.CancellationTokenSource}  # testrun_id → cts
     test_env_by_id::Dict{String,TestItemControllers.TestEnvironment}
-    session_controller::Union{Nothing,JSC.JuliaSessionsController}
+    session_controller::Union{Nothing,JSC.JuliaSessionController}
     session_reactor_task::Union{Nothing,Task}
     sessions::Dict{String,SessionRecord}
     lock::ReentrantLock

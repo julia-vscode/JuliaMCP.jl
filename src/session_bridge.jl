@@ -1,4 +1,4 @@
-# session_bridge.jl — Map JuliaSessionsControllers sessions into AppState
+# session_bridge.jl — Map JuliaSessionControllers sessions into AppState
 
 # Session-level output (anything printed outside a request) is only ever context, so a
 # bounded tail is enough.
@@ -75,9 +75,9 @@ end
 
 function init_session_controller!(state::AppState)
     state.session_controller === nothing || return
-    state.session_controller = JSC.JuliaSessionsController(create_session_callbacks(state); log_level=:Info)
+    state.session_controller = JSC.JuliaSessionController(create_session_callbacks(state); log_level=:Info)
     state.session_reactor_task = @async Base.run(state.session_controller)
-    mcp_notice(state, "transport", "JuliaSessionsController initialized")
+    mcp_notice(state, "transport", "JuliaSessionController initialized")
     return
 end
 
