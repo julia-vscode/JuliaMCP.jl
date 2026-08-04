@@ -35,6 +35,11 @@ function handle_initialize(state::AppState, params::Dict)
             `get_diagnostics` reports syntax errors and lint warnings; environment-dependent
             checks such as unresolved imports require `wait_for_ready: true`.
             `format_file` returns formatting edits, or applies them when `apply` is true.
+            Separately, `create_session` starts a persistent Julia session for `eval_code`,
+            `profile_code` and `get_session_variables`. State persists between calls, so
+            iterating in a session avoids repeated startup and compilation costs. Sessions
+            need no workspace configuration. There is no restart tool: `kill_session` and
+            then `create_session` with the environment reported by `list_sessions`.
         """,
     )
 end

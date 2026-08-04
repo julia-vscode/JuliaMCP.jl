@@ -44,6 +44,30 @@ mutable struct ProcessInfo
     project_uri::String
 end
 
+"""
+A Julia session managed by JuliaSessionsControllers, plus the output the app has seen for
+it. `request_outputs` is keyed by the request id the caller supplied to `JSC.evaluate`.
+"""
+mutable struct SessionRecord
+    const id::String
+    const env::JSC.SessionEnvironment
+    status::String
+    const created_at::Dates.DateTime
+    last_used_at::Dates.DateTime
+    const output::Vector{String}
+    const request_outputs::Dict{String,Vector{String}}
+    alive::Bool
+    exit_message::Union{Nothing,String}
+end
+
+function SessionRecord(id::AbstractString, env::JSC.SessionEnvironment)
+    now = Dates.now()
+    return SessionRecord(
+        String(id), env, "Created", now, now,
+        String[], Dict{String,Vector{String}}(), true, nothing,
+    )
+end
+
 function run_summary(run::TestRunRecord)
     total = length(run.items)
     passed = count(v -> v.status == :passed, values(run.items))

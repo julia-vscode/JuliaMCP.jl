@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "93f9777ad3f55984e09089a570b2be47c059a3e4"
+project_hash = "a9578f726034806230e5eea37041aea69f01fab8"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -99,6 +99,12 @@ deps = ["CommonMark", "Glob", "JuliaSyntax", "PrecompileTools", "TOML"]
 git-tree-sha1 = "734a648c54e0512112049150965e85c887ae7fa3"
 uuid = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
 version = "2.4.0"
+
+[[deps.JuliaSessionsControllers]]
+deps = ["Dates", "Mmap", "Sockets", "UUIDs", "Unicode"]
+path = "C:/Users/david/.julia/dev/JuliaSessionsControllers"
+uuid = "198e8358-5c10-4522-8616-de55b5f2a154"
+version = "0.1.0"
 
 [[deps.JuliaSyntax]]
 git-tree-sha1 = "937da4713526b96ac9a178e2035019d3b78ead4a"
@@ -232,7 +238,7 @@ version = "0.7.0"
 deps = ["ExceptionUnwrapping", "Logging", "MacroTools"]
 path = "../Salsa"
 uuid = "1fbf2c77-44e2-4d5d-8131-0fa618a5c278"
-version = "2.5.1"
+version = "2.5.2"
 
 [[deps.Scratch]]
 deps = ["Dates"]
@@ -280,7 +286,7 @@ uuid = "76b0de8b-5c4b-48ef-a724-914b33ca988d"
 version = "1.1.0"
 
 [[deps.TestItemMCPApp]]
-deps = ["CancellationTokens", "Dates", "JSON", "JSONRPC", "JuliaWorkspaces", "Logging", "TestItemControllers", "UUIDs"]
+deps = ["Dates", "JSON", "JSONRPC", "JuliaWorkspaces", "Logging", "TestItemControllers", "UUIDs"]
 path = "."
 uuid = "872bb665-be73-4a1a-b936-3df7f172039c"
 version = "0.1.0"

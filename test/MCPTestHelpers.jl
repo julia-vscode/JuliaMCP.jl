@@ -55,6 +55,7 @@ function with_app_state(f)
         try
             TestItemMCPApp.stop_watcher!(state)
             TestItemMCPApp.shutdown_controller!(state)
+            TestItemMCPApp.shutdown_sessions!(state)
         catch
         end
         close(endpoint)

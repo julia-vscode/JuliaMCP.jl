@@ -1,7 +1,12 @@
 module TestItemMCPApp
 
 import JSON, JSONRPC, JuliaWorkspaces, TestItemControllers
+import JuliaSessionsControllers
 import UUIDs, Dates, Logging
+
+# Never `using` this one: it exports `shutdown`, `wait_for_shutdown`, `list_sessions` and
+# `ControllerCallbacks`, all of which collide with TestItemControllers.
+const JSC = JuliaSessionsControllers
 
 # TestItemControllers vendors its own copy of CancellationTokens, and tokens
 # cross that boundary in `execute_testrun` — so we must use the same one it does
@@ -13,6 +18,7 @@ include("state.jl")
 include("mcp_logging.jl")
 include("mcp_protocol.jl")
 include("bridge.jl")
+include("session_bridge.jl")
 include("diagnostics.jl")
 include("watcher.jl")
 include("callbacks.jl")

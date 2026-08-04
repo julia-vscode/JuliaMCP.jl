@@ -19,6 +19,7 @@ function run_server(input::IO, output::IO)
     finally
         stop_watcher!(state)
         shutdown_controller!(state)
+        shutdown_sessions!(state)
         try
             close(endpoint)
         catch

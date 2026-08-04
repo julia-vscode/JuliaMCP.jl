@@ -33,6 +33,19 @@ function resource_templates()
                              "errors and process crashes surface, which no per-item detail can show.",
             "mimeType" => "text/plain",
         ),
+        Dict{String,Any}(
+            "uriTemplate" => "session://{session_id}/output",
+            "name" => "Session Output",
+            "description" => "Recent output of a Julia session that was not attributed to a " *
+                             "specific eval_code call, such as printing from a background task.",
+            "mimeType" => "text/plain",
+        ),
+        Dict{String,Any}(
+            "uriTemplate" => "session://{session_id}/info",
+            "name" => "Session Info",
+            "description" => "Status and environment of a Julia session.",
+            "mimeType" => "application/json",
+        ),
     ]
 end
 
@@ -50,6 +63,18 @@ function dynamic_resources(state::AppState)
             push!(res, Dict{String,Any}(
                 "uri" => "testprocess://$id/output",
                 "name" => "Process $id output ($(p.package_name), $(p.status))",
+                "mimeType" => "text/plain",
+            ))
+        end
+        for (id, rec) in state.sessions
+            push!(res, Dict{String,Any}(
+                "uri" => "session://$id/info",
+                "name" => "Session $id ($(rec.status))",
+                "mimeType" => "application/json",
+            ))
+            push!(res, Dict{String,Any}(
+                "uri" => "session://$id/output",
+                "name" => "Session $id output",
                 "mimeType" => "text/plain",
             ))
         end
@@ -183,6 +208,30 @@ function read_resource(state::AppState, uri::String)
         end
         output === nothing && error("Test process not found: $process_id")
         return [Dict{String,Any}("uri" => uri, "mimeType" => "text/plain", "text" => output)]
+    end
+
+    # session://{id}/output
+    m = match(r"^session://([^/]+)/output$", uri)
+    if m !== nothing
+        session_id = m[1]
+        output = lock(state.lock) do
+            rec = get(state.sessions, session_id, nothing)
+            rec === nothing ? nothing : join(rec.output, "")
+        end
+        output === nothing && error("Session not found: $session_id")
+        return [Dict{String,Any}("uri" => uri, "mimeType" => "text/plain", "text" => output)]
+    end
+
+    # session://{id}/info
+    m = match(r"^session://([^/]+)/info$", uri)
+    if m !== nothing
+        session_id = m[1]
+        info = lock(state.lock) do
+            rec = get(state.sessions, session_id, nothing)
+            rec === nothing ? nothing : session_dict(rec)
+        end
+        info === nothing && error("Session not found: $session_id")
+        return [Dict{String,Any}("uri" => uri, "mimeType" => "application/json", "text" => JSON.json(info))]
     end
 
     error("Unknown resource URI: $uri")

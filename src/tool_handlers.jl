@@ -55,6 +55,20 @@ function handle_tool_call(state::AppState, tool_name::String, arguments::Dict{St
         return tool_terminate_test_process(state, arguments)
     elseif tool_name == "get_coverage_results"
         return tool_get_coverage_results(state, arguments)
+    elseif tool_name == "create_session"
+        return tool_create_session(state, arguments)
+    elseif tool_name == "eval_code"
+        return tool_eval_code(state, arguments)
+    elseif tool_name == "interrupt_session"
+        return tool_interrupt_session(state, arguments)
+    elseif tool_name == "kill_session"
+        return tool_kill_session(state, arguments)
+    elseif tool_name == "list_sessions"
+        return tool_list_sessions(state, arguments)
+    elseif tool_name == "profile_code"
+        return tool_profile_code(state, arguments)
+    elseif tool_name == "get_session_variables"
+        return tool_get_session_variables(state, arguments)
     else
         error("Unknown tool: $tool_name")
     end
@@ -624,4 +638,276 @@ function coverage_to_dicts(coverage_results)
         ))
     end
     return dicts
+end
+
+# --- Julia sessions ---
+
+const PROFILE_ENTRIES_DEFAULT = 25
+
+function tool_create_session(state::AppState, args::Dict{String,Any})
+    init_session_controller!(state)
+
+    env = try
+        build_session_environment(args)
+    catch err
+        return tool_result_error("Invalid session environment: $(sprint(showerror, err))")
+    end
+
+    session_id = try
+        JSC.create_session(state.session_controller, env)
+    catch err
+        return tool_result_error("Failed to create session: $(sprint(showerror, err))")
+    end
+
+    rec = SessionRecord(session_id, env)
+    lock(state.lock) do
+        state.sessions[session_id] = rec
+    end
+
+    notify_resource_list_changed(state)
+    return tool_result_json(session_dict(rec))
+end
+
+function tool_eval_code(state::AppState, args::Dict{String,Any})
+    rec, err = session_record(state, args)
+    rec === nothing && return err
+
+    code = args["code"]::String
+    request_id = string(UUIDs.uuid4())
+    lock(state.lock) do
+        rec.request_outputs[request_id] = String[]
+        rec.last_used_at = Dates.now()
+    end
+
+    try
+        if something(get(args, "revise", nothing), true)
+            try
+                JSC.revise!(state.session_controller, rec.id)
+            catch revise_err
+                mcp_warn(state, "session", "Revise failed in $(rec.id): $(sprint(showerror, revise_err))")
+            end
+        end
+
+        result = JSC.evaluate(
+            state.session_controller, rec.id, code;
+            mod = something(get(args, "module", nothing), "Main"),
+            timeout = get(args, "timeout", nothing),
+            request_id = request_id,
+        )
+
+        payload = Dict{String,Any}(
+            "session_id" => rec.id,
+            "status" => string(result.status),
+            "result" => result.inline,
+            "result_type" => result.result_type,
+            "elapsed" => result.elapsed,
+        )
+        if result.status === :error
+            payload["error"] = result.all
+            payload["stack_trace"] = [
+                Dict{String,Any}("label" => f.label, "uri" => f.uri, "line" => f.line)
+                for f in something(result.stack_frames, JSC.StackFrame[])
+            ]
+        end
+        add_request_output!(payload, state, rec, request_id, args)
+        return tool_result_json(payload)
+    catch call_err
+        return session_call_error(state, rec, request_id, args, call_err)
+    finally
+        lock(state.lock) do
+            delete!(rec.request_outputs, request_id)
+        end
+    end
+end
+
+function tool_interrupt_session(state::AppState, args::Dict{String,Any})
+    rec, err = session_record(state, args)
+    rec === nothing && return err
+
+    try
+        JSC.interrupt_session(state.session_controller, rec.id)
+    catch call_err
+        return tool_result_error("Failed to interrupt session $(rec.id): $(sprint(showerror, call_err))")
+    end
+    return tool_result_text("Interrupt sent to session $(rec.id).")
+end
+
+function tool_kill_session(state::AppState, args::Dict{String,Any})
+    rec, err = session_record(state, args)
+    rec === nothing && return err
+
+    try
+        JSC.terminate_session(state.session_controller, rec.id)
+    catch call_err
+        return tool_result_error("Failed to terminate session $(rec.id): $(sprint(showerror, call_err))")
+    end
+
+    lock(state.lock) do
+        delete!(state.sessions, rec.id)
+    end
+    notify_resource_list_changed(state)
+    return tool_result_text("Session $(rec.id) terminated.")
+end
+
+function tool_list_sessions(state::AppState, args::Dict{String,Any})
+    controller = state.session_controller
+    live = controller === nothing ? JSC.SessionInfo[] : JSC.list_sessions(controller)
+    by_id = Dict(info.id => info for info in live)
+
+    sessions = lock(state.lock) do
+        [session_dict(rec, get(by_id, rec.id, nothing)) for rec in values(state.sessions)]
+    end
+    sort!(sessions, by = d -> d["created_at"])
+    return tool_result_json(sessions)
+end
+
+function tool_profile_code(state::AppState, args::Dict{String,Any})
+    rec, err = session_record(state, args)
+    rec === nothing && return err
+
+    kind = something(get(args, "kind", nothing), "cpu")
+    kind in ("cpu", "alloc") || return tool_result_error("profile kind must be \"cpu\" or \"alloc\", got \"$kind\".")
+
+    request_id = string(UUIDs.uuid4())
+    lock(state.lock) do
+        rec.request_outputs[request_id] = String[]
+        rec.last_used_at = Dates.now()
+    end
+
+    try
+        result = JSC.profile(
+            state.session_controller, rec.id, args["code"]::String;
+            kind = Symbol(kind),
+            mod = something(get(args, "module", nothing), "Main"),
+            timeout = get(args, "timeout", nothing),
+            request_id = request_id,
+        )
+
+        if result.status !== :success
+            message = something(result.error, "Profiling is not supported by this session's Julia version.")
+            return tool_result_error("Profiling failed: $message")
+        end
+
+        payload = Dict{String,Any}(
+            "session_id" => rec.id,
+            "kind" => kind,
+            "total_samples" => result.total_samples,
+            "hot_functions" => profile_hot_functions(
+                result, something(get(args, "max_entries", nothing), PROFILE_ENTRIES_DEFAULT),
+            ),
+        )
+        add_request_output!(payload, state, rec, request_id, args)
+        return tool_result_json(payload)
+    catch call_err
+        return session_call_error(state, rec, request_id, args, call_err)
+    finally
+        lock(state.lock) do
+            delete!(rec.request_outputs, request_id)
+        end
+    end
+end
+
+function tool_get_session_variables(state::AppState, args::Dict{String,Any})
+    rec, err = session_record(state, args)
+    rec === nothing && return err
+
+    variable_id = get(args, "variable_id", nothing)
+    try
+        variables = variable_id === nothing ?
+            JSC.get_variables(
+                state.session_controller, rec.id;
+                mod = something(get(args, "module", nothing), "Main"),
+                include_modules = something(get(args, "include_modules", nothing), false),
+            ) :
+            JSC.get_lazy(state.session_controller, rec.id, Int(variable_id))
+
+        return tool_result_json([
+            Dict{String,Any}(
+                "name" => v.name,
+                "type" => v.type,
+                "value" => v.value,
+                "lazy" => v.lazy,
+                "has_children" => v.has_children,
+                "variable_id" => v.id,
+            ) for v in variables
+        ])
+    catch call_err
+        return tool_result_error("Failed to inspect session $(rec.id): $(sprint(showerror, call_err))")
+    end
+end
+
+"""
+Attach the output a request produced, truncated to the caller's cap.
+"""
+function add_request_output!(payload::Dict{String,Any}, state::AppState, rec::SessionRecord,
+    request_id::String, args::Dict{String,Any})
+    max_bytes = something(get(args, "max_output_bytes", nothing), MAX_OUTPUT_BYTES_DEFAULT)
+    chunks = lock(state.lock) do
+        copy(get(rec.request_outputs, request_id, String[]))
+    end
+    text, total, truncated = truncate_output(chunks, max_bytes)
+    payload["output"] = text
+    payload["output_bytes"] = total
+    truncated && (payload["output_truncated"] = true)
+    return payload
+end
+
+"""
+Turn a failed session request into a tool error that still carries whatever the code managed
+to print — for a timeout that partial output is usually the only clue about where it hung.
+"""
+function session_call_error(state::AppState, rec::SessionRecord, request_id::String,
+    args::Dict{String,Any}, err)
+    payload = Dict{String,Any}(
+        "session_id" => rec.id,
+        "status" => "error",
+        "error" => sprint(showerror, err),
+    )
+    if err isa JSC.RequestTimeoutException
+        payload["timed_out"] = true
+    elseif err isa JSC.SessionDiedException
+        payload["session_died"] = true
+        lock(state.lock) do
+            haskey(state.sessions, rec.id) && (state.sessions[rec.id].alive = false)
+        end
+    end
+    add_request_output!(payload, state, rec, request_id, args)
+    return Dict{String,Any}(
+        "content" => [Dict{String,Any}("type" => "text", "text" => JSON.json(payload))],
+        "isError" => true,
+    )
+end
+
+"""
+Flatten a profile tree into the hottest functions. The tree itself is far too large to hand
+to a model, and self time is what points at the code to change.
+"""
+function profile_hot_functions(result::JSC.ProfileResult, max_entries::Int)
+    self = Dict{String,Int}()
+    total = Dict{String,Int}()
+    location = Dict{String,String}()
+
+    function visit(frame::JSC.ProfileFrame)
+        key = frame.func
+        child_counts = sum(c.count for c in frame.children; init=0)
+        self[key] = get(self, key, 0) + max(frame.count - child_counts, 0)
+        total[key] = get(total, key, 0) + frame.count
+        get!(location, key, "$(frame.file):$(frame.line)")
+        foreach(visit, frame.children)
+    end
+
+    threads = something(result.threads, Dict{String,JSC.ProfileFrame}())
+    # The profiler reports each thread plus an "all" aggregate; walking both double-counts.
+    roots = haskey(threads, "all") ? [threads["all"]] : collect(values(threads))
+    foreach(visit, roots)
+
+    keys_by_self = sort!(collect(keys(self)), by = k -> (self[k], total[k]), rev = true)
+    return [
+        Dict{String,Any}(
+            "function" => k,
+            "self_samples" => self[k],
+            "total_samples" => total[k],
+            "location" => location[k],
+        ) for k in first(keys_by_self, max_entries)
+    ]
 end
