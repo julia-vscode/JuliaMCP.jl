@@ -99,15 +99,18 @@ end
         result = handle_tool_call(state, "get_testitem_detail",
             Dict{String,Any}("testrun_id" => "run-1", "testitem_id" => "item-1"))
         @test !MCPTestHelpers.is_error(result)
-        detail = MCPTestHelpers.result_json(result)
+        detail = only(MCPTestHelpers.result_json(result))
         @test detail["label"] == "passing"
         @test detail["status"] == "passed"
         @test detail["output"] == "some output"
 
-        for args in (Dict{String,Any}("testrun_id" => "run-1", "testitem_id" => "nope"),
-                     Dict{String,Any}("testrun_id" => "nope", "testitem_id" => "item-1"))
-            @test MCPTestHelpers.is_error(handle_tool_call(state, "get_testitem_detail", args))
-        end
+        # An unknown item is reported in-band; only an unknown run is a tool error.
+        unknown = only(MCPTestHelpers.result_json(handle_tool_call(state, "get_testitem_detail",
+            Dict{String,Any}("testrun_id" => "run-1", "testitem_id" => "nope"))))
+        @test unknown["found"] == false
+
+        @test MCPTestHelpers.is_error(handle_tool_call(state, "get_testitem_detail",
+            Dict{String,Any}("testrun_id" => "nope", "testitem_id" => "item-1")))
     end
 end
 

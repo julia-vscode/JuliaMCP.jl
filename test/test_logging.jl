@@ -25,35 +25,30 @@ end
     @test sort(collect(keys(MCP_LOG_LEVELS)), by = k -> MCP_LOG_LEVELS[k]) == ordered
 end
 
-@testitem "log messages below the threshold are suppressed" setup=[MCPTestHelpers] begin
+@testitem "no notifications/message is ever sent" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
 
+    # MCP Logging is deprecated as of spec 2026-07-28; diagnostics go to stderr now.
     MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.request(client, "logging/setLevel", Dict{String,Any}("level" => "emergency"))
-        MCPTestHelpers.drain_notifications(client)
-
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "list_testitems")
 
         msgs = MCPTestHelpers.drain_notifications(client)
         @test isempty(filter(m -> m.method == "notifications/message", msgs))
     end
 end
 
-@testitem "log messages at or above the threshold are delivered" setup=[MCPTestHelpers] begin
+@testitem "log helpers write to stderr" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
+    using TestItemMCPApp: mcp_warn, mcp_debug, set_log_level!
 
-    MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.request(client, "logging/setLevel", Dict{String,Any}("level" => "debug"))
-        MCPTestHelpers.drain_notifications(client)
+    MCPTestHelpers.with_app_state() do state
+        set_log_level!(state, "debug")
+        @test_logs (:warn,) mcp_warn(state, "testing", "a warning")
 
-        pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
-
-        msg = MCPTestHelpers.wait_for_notification(client, "notifications/message")
-        @test msg !== nothing
-        @test haskey(msg.params, "level")
-        @test haskey(msg.params, "logger")
-        @test haskey(msg.params, "data")
+        # Below the threshold, nothing is emitted at all.
+        set_log_level!(state, "error")
+        @test_logs mcp_debug(state, "testing", "suppressed")
     end
 end

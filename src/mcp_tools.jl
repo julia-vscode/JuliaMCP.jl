@@ -124,7 +124,11 @@ function tool_definitions()
         ),
         Dict{String,Any}(
             "name" => "run_testitems",
-            "description" => "Run test items. Blocks until all tests complete and returns full results. If no items or filter specified, runs all detected test items. Test processes are reused across runs with Revise-based hot-reload for fast iteration.",
+            "description" => "Run test items. Blocks until all tests complete. Returns a summary plus a " *
+                             "compact status line per test item — failure messages, stack traces and captured " *
+                             "output are NOT included; call get_testitem_detail for those. If no items or " *
+                             "filter are specified, runs all detected test items. Test processes are reused " *
+                             "across runs with Revise-based hot-reload for fast iteration.",
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -181,6 +185,14 @@ function tool_definitions()
                         "items" => Dict{String,Any}("type" => "string"),
                         "description" => "Root URIs for coverage collection (Coverage mode only).",
                     ),
+                    "include_passing" => Dict{String,Any}(
+                        "type" => "boolean",
+                        "description" => "List passing items too. Defaults to false — passing items are counted in the summary.",
+                    ),
+                    "max_items" => Dict{String,Any}(
+                        "type" => "integer",
+                        "description" => "Maximum number of items to list (default $(MAX_ITEMS_DEFAULT)). Errored and failed items are listed first.",
+                    ),
                 ),
             ),
         ),
@@ -218,7 +230,9 @@ function tool_definitions()
         ),
         Dict{String,Any}(
             "name" => "get_testrun_results",
-            "description" => "Get results for a completed or in-progress test run.",
+            "description" => "Get results for a completed or in-progress test run: a summary plus a compact " *
+                             "status line per test item. Use get_testitem_detail for failure messages, stack " *
+                             "traces and captured output.",
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -226,13 +240,13 @@ function tool_definitions()
                         "type" => "string",
                         "description" => "ID of the test run.",
                     ),
-                    "include_output" => Dict{String,Any}(
-                        "type" => "boolean",
-                        "description" => "Include captured stdout/stderr per test item (default: false).",
-                    ),
                     "include_passing" => Dict{String,Any}(
                         "type" => "boolean",
                         "description" => "Include passing test items in results (default: false).",
+                    ),
+                    "max_items" => Dict{String,Any}(
+                        "type" => "integer",
+                        "description" => "Maximum number of items to list (default $(MAX_ITEMS_DEFAULT)). Errored and failed items are listed first.",
                     ),
                 ),
                 "required" => ["testrun_id"],
@@ -240,14 +254,37 @@ function tool_definitions()
         ),
         Dict{String,Any}(
             "name" => "get_testitem_detail",
-            "description" => "Get detailed result for a specific test item in a run, including failure messages, stack traces, and captured output.",
+            "description" => "Get detailed results for one or more test items in a run: failure messages, " *
+                             "stack traces, and captured output (stdout and stderr interleaved). This is the " *
+                             "follow-up to run_testitems — pass every id you want to inspect in one call.",
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
                     "testrun_id" => Dict{String,Any}("type" => "string", "description" => "Test run ID."),
-                    "testitem_id" => Dict{String,Any}("type" => "string", "description" => "Test item ID."),
+                    "testitem_ids" => Dict{String,Any}(
+                        "type" => "array",
+                        "items" => Dict{String,Any}("type" => "string"),
+                        "description" => "Test item IDs to inspect. Unknown ids are reported per item rather than failing the call.",
+                    ),
+                    "testitem_id" => Dict{String,Any}(
+                        "type" => "string",
+                        "description" => "Single test item ID. Prefer testitem_ids for more than one.",
+                    ),
+                    "max_output_bytes" => Dict{String,Any}(
+                        "type" => "integer",
+                        "description" => "Cap on captured output per item (default $(MAX_OUTPUT_BYTES_DEFAULT)). The tail is kept; " *
+                                         "read the testrun://{id}/items/{id}/output resource for the full stream.",
+                    ),
+                    "max_messages" => Dict{String,Any}(
+                        "type" => "integer",
+                        "description" => "Cap on failure messages per item (default $(MAX_MESSAGES_DEFAULT)).",
+                    ),
+                    "max_stack_frames" => Dict{String,Any}(
+                        "type" => "integer",
+                        "description" => "Cap on stack frames per message (default $(MAX_STACK_FRAMES_DEFAULT)).",
+                    ),
                 ),
-                "required" => ["testrun_id", "testitem_id"],
+                "required" => ["testrun_id"],
             ),
         ),
         Dict{String,Any}(

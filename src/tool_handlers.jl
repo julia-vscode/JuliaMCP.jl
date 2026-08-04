@@ -1,5 +1,10 @@
 # tool_handlers.jl — MCP tool call implementations
 
+const MAX_ITEMS_DEFAULT = 200
+const MAX_OUTPUT_BYTES_DEFAULT = 8_000
+const MAX_MESSAGES_DEFAULT = 20
+const MAX_STACK_FRAMES_DEFAULT = 20
+
 """
 Check `arguments` against the `required` list in the tool's declared input
 schema. Returns an error result for the client, or `nothing` when valid.
@@ -18,7 +23,7 @@ function validate_tool_arguments(tool_name::String, arguments::Dict{String,Any})
     return tool_result_error("Missing required argument(s) for $tool_name: $(join(missing_args, ", "))")
 end
 
-function handle_tool_call(state::AppState, tool_name::String, arguments::Dict{String,Any})
+function handle_tool_call(state::AppState, tool_name::String, arguments::Dict{String,Any}; progress_token=nothing)
     invalid = validate_tool_arguments(tool_name, arguments)
     invalid === nothing || return invalid
 
@@ -33,9 +38,9 @@ function handle_tool_call(state::AppState, tool_name::String, arguments::Dict{St
     elseif tool_name == "list_testitems"
         return tool_list_testitems(state, arguments)
     elseif tool_name == "run_testitems"
-        return tool_run_testitems(state, arguments)
+        return tool_run_testitems(state, arguments; progress_token=progress_token)
     elseif tool_name == "rerun_failed"
-        return tool_rerun_failed(state, arguments)
+        return tool_rerun_failed(state, arguments; progress_token=progress_token)
     elseif tool_name == "cancel_testrun"
         return tool_cancel_testrun(state, arguments)
     elseif tool_name == "get_testrun_results"
@@ -207,7 +212,7 @@ end
 
 # --- run_testitems ---
 
-function tool_run_testitems(state::AppState, args::Dict{String,Any})
+function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_token=nothing)
     state.workspace === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
 
     init_controller!(state)
@@ -260,6 +265,13 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any})
     end
     notify_resource_list_changed(state)
 
+    run_record.progress_token = progress_token
+    if progress_token !== nothing
+        notify_progress(state, progress_token, 0, length(items), "$(length(items)) test item(s) — starting")
+        run_record.progress_value = 0.0
+        start_heartbeat!(state, run_record)
+    end
+
     mcp_info(state, "tools", "Starting test run $testrun_id with $(length(items)) item(s)")
 
     coverage_results = try
@@ -282,6 +294,7 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any})
         mcp_error(state, "tools", "Test run $testrun_id failed: $e")
         return tool_result_error("Test run failed: $e")
     finally
+        stop_heartbeat!(run_record)
         lock(state.lock) do
             delete!(state.cancellation_sources, testrun_id)
         end
@@ -299,36 +312,54 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any})
         run_summary(run_record)
     end
 
+    report_progress!(state, run_record; final=true)
+    run_record.progress_token = nothing
+
     notify_resource_updated(state, "testrun://$testrun_id/summary")
     notify_resource_updated(state, "testrun://$testrun_id/failures")
 
     mcp_info(state, "tools", "Test run $testrun_id completed: $(summary["passed"]) passed, $(summary["failed"]) failed, $(summary["errored"]) errored")
 
-    # Return full results inline so the LLM has everything it needs
-    failures = lock(state.lock) do
-        [
-            Dict{String,Any}(
-                "testitem_id" => item.testitem_id,
-                "label" => item.label,
-                "uri" => item.uri,
-                "status" => string(item.status),
-                "duration" => item.duration,
-                "messages" => item.messages,
-            ) for item in values(run_record.items) if item.status in (:failed, :errored)
+    return tool_result_json(collect_run_payload(state, run_record, summary, args))
+end
+
+"""
+Compact result payload: a summary plus one status line per test item. Failure messages,
+stack traces and captured output are deliberately excluded — they are unbounded, and a
+broadly-failing suite would otherwise flood the caller's context. `get_testitem_detail`
+serves them on demand.
+"""
+function collect_run_payload(state::AppState, run::TestRunRecord, summary, args::Dict{String,Any})
+    include_passing = something(get(args, "include_passing", nothing), false)
+    max_items = something(get(args, "max_items", nothing), MAX_ITEMS_DEFAULT)
+
+    selected, items_out = lock(state.lock) do
+        selected = [
+            item for item in values(run.items)
+            if include_passing || item.status !== :passed
         ]
+        sort!(selected, by = item -> (status_rank(item), item.label))
+        (length(selected), testitem_status_dict.(first(selected, max_items)))
     end
 
-    result = Dict{String,Any}(
+    payload = Dict{String,Any}(
         "summary" => summary,
-        "failures" => failures,
+        "items" => items_out,
+        "total_matching_items" => selected,
+        "items_truncated" => selected > length(items_out),
+        "detail_hint" => "Messages, stack traces and captured output are not included here. " *
+                         "Call get_testitem_detail with testrun_id=\"$(run.id)\" and " *
+                         "testitem_ids=[...] for the items you want to inspect.",
     )
-
-    return tool_result_json(result)
+    if !include_passing
+        payload["note"] = "Passing items are omitted; pass include_passing=true to list them."
+    end
+    return payload
 end
 
 # --- rerun_failed ---
 
-function tool_rerun_failed(state::AppState, args::Dict{String,Any})
+function tool_rerun_failed(state::AppState, args::Dict{String,Any}; progress_token=nothing)
     testrun_id = args["testrun_id"]::String
 
     prev_run = lock(state.lock) do
@@ -351,7 +382,7 @@ function tool_rerun_failed(state::AppState, args::Dict{String,Any})
         end
     end
 
-    return tool_run_testitems(state, new_args)
+    return tool_run_testitems(state, new_args; progress_token=progress_token)
 end
 
 # --- cancel_testrun ---
@@ -371,6 +402,7 @@ function tool_cancel_testrun(state::AppState, args::Dict{String,Any})
         if run !== nothing
             run.status = :cancelled
             run.completed_at = Dates.now()
+            stop_heartbeat!(run)
         end
     end
 
@@ -382,8 +414,6 @@ end
 
 function tool_get_testrun_results(state::AppState, args::Dict{String,Any})
     testrun_id = args["testrun_id"]::String
-    include_output = get(args, "include_output", false)::Bool
-    include_passing = get(args, "include_passing", false)::Bool
 
     run = lock(state.lock) do
         get(state.runs, testrun_id, nothing)
@@ -394,57 +424,93 @@ function tool_get_testrun_results(state::AppState, args::Dict{String,Any})
         run_summary(run)
     end
 
-    items_out = lock(state.lock) do
-        result = Dict{String,Any}[]
-        for item in values(run.items)
-            if !include_passing && item.status == :passed
-                continue
-            end
-            d = Dict{String,Any}(
-                "testitem_id" => item.testitem_id,
-                "label" => item.label,
-                "uri" => item.uri,
-                "status" => string(item.status),
-                "duration" => item.duration,
-                "messages" => item.messages,
-            )
-            if include_output
-                d["output"] = join(item.output, "")
-            end
-            push!(result, d)
-        end
-        result
-    end
-
-    return tool_result_json(Dict{String,Any}("summary" => summary, "items" => items_out))
+    return tool_result_json(collect_run_payload(state, run, summary, args))
 end
 
 # --- get_testitem_detail ---
 
 function tool_get_testitem_detail(state::AppState, args::Dict{String,Any})
     testrun_id = args["testrun_id"]::String
-    testitem_id = args["testitem_id"]::String
 
-    item = lock(state.lock) do
-        run = get(state.runs, testrun_id, nothing)
-        run === nothing && return nothing
-        get(run.items, testitem_id, nothing)
+    ids = String[]
+    if haskey(args, "testitem_ids") && args["testitem_ids"] !== nothing
+        append!(ids, convert(Vector{String}, args["testitem_ids"]))
     end
-    item === nothing && return tool_result_error("Test item $testitem_id not found in run $testrun_id")
+    if haskey(args, "testitem_id") && args["testitem_id"] !== nothing
+        push!(ids, args["testitem_id"]::String)
+    end
+    unique!(ids)
+    isempty(ids) && return tool_result_error("Provide testitem_ids (or testitem_id) for the items to inspect.")
 
-    d = lock(state.lock) do
-        Dict{String,Any}(
-            "testitem_id" => item.testitem_id,
-            "label" => item.label,
-            "uri" => item.uri,
-            "status" => string(item.status),
-            "duration" => item.duration,
-            "messages" => item.messages,
-            "output" => join(item.output, ""),
+    run = lock(state.lock) do
+        get(state.runs, testrun_id, nothing)
+    end
+    run === nothing && return tool_result_error("Test run not found: $testrun_id")
+
+    max_output_bytes = something(get(args, "max_output_bytes", nothing), MAX_OUTPUT_BYTES_DEFAULT)
+    max_messages = something(get(args, "max_messages", nothing), MAX_MESSAGES_DEFAULT)
+    max_stack_frames = something(get(args, "max_stack_frames", nothing), MAX_STACK_FRAMES_DEFAULT)
+
+    details = lock(state.lock) do
+        [
+            testitem_detail_dict(run, id, max_output_bytes, max_messages, max_stack_frames)
+            for id in ids
+        ]
+    end
+
+    return tool_result_json(details)
+end
+
+function testitem_detail_dict(run::TestRunRecord, testitem_id::String, max_output_bytes::Int, max_messages::Int, max_stack_frames::Int)
+    item = get(run.items, testitem_id, nothing)
+    if item === nothing
+        return Dict{String,Any}(
+            "testitem_id" => testitem_id,
+            "found" => false,
+            "error" => "No such test item in run $(run.id).",
         )
     end
 
-    return tool_result_json(d)
+    output, output_bytes, output_truncated = truncate_output(item.output, max_output_bytes)
+
+    return Dict{String,Any}(
+        "testitem_id" => item.testitem_id,
+        "found" => true,
+        "label" => item.label,
+        "uri" => item.uri,
+        "status" => string(item.status),
+        "duration" => item.duration,
+        "messages" => [truncate_message(m, max_stack_frames) for m in first(item.messages, max_messages)],
+        "messages_truncated" => length(item.messages) > max_messages,
+        "total_messages" => length(item.messages),
+        # stdout and stderr are interleaved into one stream by the test process.
+        "output" => output,
+        "output_truncated" => output_truncated,
+        "output_total_bytes" => output_bytes,
+        "output_resource" => "testrun://$(run.id)/items/$(item.testitem_id)/output",
+    )
+end
+
+"""
+Keep the tail of the captured output — a failure and its trailing context matter more than
+whatever the test printed on the way in.
+"""
+function truncate_output(chunks::Vector{String}, max_bytes::Int)
+    text = join(chunks, "")
+    total = sizeof(text)
+    total <= max_bytes && return text, total, false
+    tail = SubString(text, thisind(text, max(1, lastindex(text) - max_bytes + 1)))
+    return "[… $(total - sizeof(tail)) bytes elided …]\n" * tail, total, true
+end
+
+function truncate_message(msg, max_stack_frames::Int)
+    frames = get(msg, "stack_trace", nothing)
+    (frames === nothing || length(frames) <= max_stack_frames) && return msg
+    out = copy(msg)
+    out["stack_trace"] = first(frames, max_stack_frames)
+    out["stack_trace_truncated"] = true
+    out["total_stack_frames"] = length(frames)
+    return out
 end
 
 # --- list_testruns ---

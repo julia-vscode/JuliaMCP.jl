@@ -10,7 +10,8 @@
         @test result["capabilities"]["resources"]["subscribe"] == true
         @test result["capabilities"]["resources"]["listChanged"] == true
         @test haskey(result["capabilities"], "tools")
-        @test haskey(result["capabilities"], "logging")
+        # MCP Logging is deprecated as of spec 2026-07-28; we log to stderr instead.
+        @test !haskey(result["capabilities"], "logging")
         @test occursin("set_workspace_folders", result["instructions"])
     end
 end
@@ -64,22 +65,24 @@ end
         @test "testrun://{testrun_id}/failures" in templates
         @test "testrun://{testrun_id}/coverage" in templates
         @test "testrun://{testrun_id}/items/{testitem_id}/output" in templates
+        @test "testprocess://{process_id}/output" in templates
     end
 end
 
-@testitem "logging/setLevel" setup=[MCPTestHelpers] begin
+@testitem "logging/setLevel is gone" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
+    using TestItemMCPApp: JSONRPC
 
+    # Removed with the deprecated MCP Logging capability.
     MCPTestHelpers.with_mcp_server() do client
-        @test MCPTestHelpers.request(client, "logging/setLevel", Dict{String,Any}("level" => "error")) == Dict{String,Any}()
-
         err = try
-            MCPTestHelpers.request(client, "logging/setLevel", Dict{String,Any}("level" => "bogus"))
+            MCPTestHelpers.request(client, "logging/setLevel", Dict{String,Any}("level" => "error"))
             nothing
         catch e
             e
         end
-        @test err !== nothing
+        @test err isa JSONRPC.JSONRPCError
+        @test err.code == -32601
     end
 end
 

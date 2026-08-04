@@ -79,7 +79,7 @@ function dispatch_mcp_message(state::AppState, endpoint::JSONRPC.JSONRPCEndpoint
         else
             arguments = Dict{String,Any}()
         end
-        result = handle_tool_call(state, tool_name, arguments)
+        result = handle_tool_call(state, tool_name, arguments; progress_token=progress_token_of(params))
         JSONRPC.send_success_response(endpoint, msg, result)
         return
     end
@@ -115,16 +115,19 @@ function dispatch_mcp_message(state::AppState, endpoint::JSONRPC.JSONRPCEndpoint
         return
     end
 
-    # --- Logging ---
-    if method == "logging/setLevel"
-        level = params["level"]::String
-        set_log_level!(state, level)
-        JSONRPC.send_success_response(endpoint, msg, Dict{String,Any}())
-        return
-    end
-
     # --- Unknown method ---
     if msg.id !== nothing
         JSONRPC.send_error_response(endpoint, msg, -32601, "Method not found: $method", nothing)
     end
+end
+
+"""
+The client opts into progress reporting by putting a `progressToken` in the request's
+`_meta`. Per spec it is a string or an integer; anything else is ignored.
+"""
+function progress_token_of(params)
+    meta = get(params, "_meta", nothing)
+    meta isa Dict || return nothing
+    token = get(meta, "progressToken", nothing)
+    return token isa String || token isa Integer ? token : nothing
 end

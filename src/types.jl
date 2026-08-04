@@ -20,6 +20,20 @@ mutable struct TestRunRecord
     coverage::Union{Nothing,Vector{Any}}      # FileCoverage-like dicts
     const started_at::Dates.DateTime
     completed_at::Union{Nothing,Dates.DateTime}
+    # --- MCP progress reporting, all guarded by `AppState.lock` ---
+    progress_token::Union{Nothing,String,Int}
+    progress_value::Float64  # last value actually sent; -1 means nothing sent yet
+    progress_frac::Float64   # sub-item heartbeat offset, in [0, 0.95)
+    progress_done::Int
+    progress_note::String    # startup/status text shown while no item has finished
+    heartbeat_stop::Union{Nothing,Ref{Bool}}
+end
+
+function TestRunRecord(id, status, profile_params, items, coverage, started_at, completed_at)
+    return TestRunRecord(
+        id, status, profile_params, items, coverage, started_at, completed_at,
+        nothing, -1.0, 0.0, 0, "", nothing,
+    )
 end
 
 mutable struct ProcessInfo
@@ -55,7 +69,29 @@ function run_summary(run::TestRunRecord)
     )
 end
 
+"""
+Compact, bounded view of a test item — no messages, no captured output. Detail lives
+behind the `get_testitem_detail` tool so run results stay small.
+"""
+function testitem_status_dict(item::TestItemResult)
+    return Dict{String,Any}(
+        "testitem_id" => item.testitem_id,
+        "label" => item.label,
+        "uri" => item.uri,
+        "status" => string(item.status),
+        "duration" => item.duration,
+    )
+end
+
+# Sort order for truncation: the most diagnostic statuses must survive the cap.
+const STATUS_RANK = Dict{Symbol,Int}(
+    :errored => 0, :failed => 1, :running => 2, :pending => 3, :skipped => 4, :passed => 5,
+)
+
+status_rank(item::TestItemResult) = get(STATUS_RANK, item.status, 9)
+
 function testmessage_to_dict(msg)
+
     d = Dict{String,Any}("message" => msg.message)
     if msg.expected_output !== nothing
         d["expected_output"] = msg.expected_output

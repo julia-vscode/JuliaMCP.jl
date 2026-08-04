@@ -24,6 +24,7 @@ function create_controller_callbacks(state::AppState)
                 item.duration = duration
             end
             mcp_info(state, "testitem", "Passed: $(get_item_label(state, testrun_id, testitem_id)) ($(round(duration, digits=2))s)")
+            report_run_progress(state, testrun_id)
             notify_resource_updated(state, "testrun://$testrun_id/summary")
             notify_resource_updated(state, "testrun://$testrun_id/failures")
         end,
@@ -42,6 +43,7 @@ function create_controller_callbacks(state::AppState)
             msg_summary = isempty(messages) ? "" : ": $(first(messages).message)"
             dur_str = duration !== nothing ? " ($(round(duration, digits=2))s)" : ""
             mcp_warn(state, "testitem", "Failed: $label$dur_str$msg_summary")
+            report_run_progress(state, testrun_id)
             notify_resource_updated(state, "testrun://$testrun_id/summary")
             notify_resource_updated(state, "testrun://$testrun_id/failures")
         end,
@@ -60,6 +62,7 @@ function create_controller_callbacks(state::AppState)
             msg_summary = isempty(messages) ? "" : ": $(first(messages).message)"
             dur_str = duration !== nothing ? " ($(round(duration, digits=2))s)" : ""
             mcp_error(state, "testitem", "Errored: $label$dur_str$msg_summary")
+            report_run_progress(state, testrun_id)
             notify_resource_updated(state, "testrun://$testrun_id/summary")
             notify_resource_updated(state, "testrun://$testrun_id/failures")
         end,
@@ -73,6 +76,7 @@ function create_controller_callbacks(state::AppState)
                 item.status = :skipped
             end
             mcp_info(state, "testitem", "Skipped: $(get_item_label(state, testrun_id, testitem_id))")
+            report_run_progress(state, testrun_id)
             notify_resource_updated(state, "testrun://$testrun_id/summary")
         end,
 
@@ -103,6 +107,7 @@ function create_controller_callbacks(state::AppState)
                 state.process_outputs[id] = String[]
             end
             mcp_notice(state, "controller", "Process created for $package_name (id=$id)")
+            note_run_progress(state, "starting test process for $package_name")
             notify_resource_list_changed(state)
         end,
 
@@ -125,6 +130,7 @@ function create_controller_callbacks(state::AppState)
                 p.status = status
             end
             mcp_debug(state, "controller", "Process $id: $status")
+            note_run_progress(state, "test process $status")
         end,
 
         on_process_output = (id, output) -> begin
@@ -145,6 +151,23 @@ function get_item_label(state::AppState, testrun_id::String, testitem_id::String
         item = get(run.items, testitem_id, nothing)
         item === nothing && return testitem_id
         return item.label
+    end
+end
+
+function report_run_progress(state::AppState, testrun_id::String)
+    run = lock(state.lock) do
+        get(state.runs, testrun_id, nothing)
+    end
+    run === nothing && return
+    report_progress!(state, run)
+end
+
+# Process callbacks carry no testrun id, so the note goes to whichever runs are active.
+function note_run_progress(state::AppState, note::String)
+    lock(state.lock) do
+        for run in values(state.runs)
+            run.status === :running && (run.progress_note = note)
+        end
     end
 end
 

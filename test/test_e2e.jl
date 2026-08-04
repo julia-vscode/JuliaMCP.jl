@@ -17,10 +17,22 @@
         @test summary["failed"] == 1
         @test summary["errored"] == 1
 
-        failures = Dict(f["label"] => f for f in report["failures"])
-        @test haskey(failures, "failing")
-        @test haskey(failures, "erroring")
-        @test !isempty(failures["erroring"]["messages"])
+        # The run payload is a compact status list; detail lives behind get_testitem_detail.
+        listed = Dict(i["label"] => i for i in report["items"])
+        @test haskey(listed, "failing")
+        @test haskey(listed, "erroring")
+        @test !haskey(listed["erroring"], "messages")
+        @test !haskey(listed["erroring"], "output")
+        @test !haskey(report, "failures")
+
+        detail = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "get_testitem_detail",
+            Dict{String,Any}(
+                "testrun_id" => summary["testrun_id"],
+                "testitem_ids" => [listed["erroring"]["testitem_id"], listed["failing"]["testitem_id"]],
+            )))
+        @test length(detail) == 2
+        @test all(d -> d["found"], detail)
+        @test !isempty(detail[1]["messages"])
     end
 end
 

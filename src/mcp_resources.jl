@@ -26,6 +26,13 @@ function resource_templates()
             "description" => "Line-level code coverage from a Coverage-mode test run.",
             "mimeType" => "application/json",
         ),
+        Dict{String,Any}(
+            "uriTemplate" => "testprocess://{process_id}/output",
+            "name" => "Test Process Output",
+            "description" => "Raw output of a test worker process. This is where precompilation " *
+                             "errors and process crashes surface, which no per-item detail can show.",
+            "mimeType" => "text/plain",
+        ),
     ]
 end
 
@@ -37,6 +44,13 @@ function dynamic_resources(state::AppState)
                 "uri" => "testrun://$id/summary",
                 "name" => "Run $id summary ($(run.status))",
                 "mimeType" => "application/json",
+            ))
+        end
+        for (id, p) in state.processes
+            push!(res, Dict{String,Any}(
+                "uri" => "testprocess://$id/output",
+                "name" => "Process $id output ($(p.package_name), $(p.status))",
+                "mimeType" => "text/plain",
             ))
         end
     end
@@ -157,6 +171,18 @@ function read_resource(state::AppState, uri::String)
         end
         coverage === nothing && error("No coverage data for run: $run_id")
         return [Dict{String,Any}("uri" => uri, "mimeType" => "application/json", "text" => JSON.json(coverage))]
+    end
+
+    # testprocess://{id}/output
+    m = match(r"^testprocess://([^/]+)/output$", uri)
+    if m !== nothing
+        process_id = m[1]
+        output = lock(state.lock) do
+            buf = get(state.process_outputs, process_id, nothing)
+            buf === nothing ? nothing : join(buf, "")
+        end
+        output === nothing && error("Test process not found: $process_id")
+        return [Dict{String,Any}("uri" => uri, "mimeType" => "text/plain", "text" => output)]
     end
 
     error("Unknown resource URI: $uri")

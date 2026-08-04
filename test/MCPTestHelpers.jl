@@ -94,8 +94,13 @@ function initialize!(c::MCPClient)
     return result
 end
 
-call_tool(c::MCPClient, name::AbstractString, args::Dict=Dict{String,Any}()) =
-    request(c, "tools/call", Dict{String,Any}("name" => name, "arguments" => args))
+function call_tool(c::MCPClient, name::AbstractString, args::Dict=Dict{String,Any}(); progress_token=nothing)
+    params = Dict{String,Any}("name" => name, "arguments" => args)
+    if progress_token !== nothing
+        params["_meta"] = Dict{String,Any}("progressToken" => progress_token)
+    end
+    return request(c, "tools/call", params)
+end
 
 read_resource(c::MCPClient, uri::AbstractString) =
     request(c, "resources/read", Dict{String,Any}("uri" => uri))

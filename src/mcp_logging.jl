@@ -1,4 +1,8 @@
-# mcp_logging.jl — MCP logging subsystem
+# mcp_logging.jl — Diagnostic logging to stderr
+#
+# MCP's `logging` capability (`notifications/message`) is Deprecated as of spec revision
+# 2026-07-28 (SEP-2577); the prescribed migration for stdio servers is to log to stderr.
+# The MCP severity vocabulary is kept as a verbosity dial, but is no longer wire-visible.
 
 # MCP severity levels in order (lowest → highest)
 const MCP_LOG_LEVELS = Dict{Symbol,Int}(
@@ -17,18 +21,17 @@ function mcp_log(state::AppState, level::Symbol, logger::String, data)
     min_rank = get(MCP_LOG_LEVELS, state.log_level, 1)
     level_rank < min_rank && return
 
-    # Also log to stderr as fallback
-    @debug "[$level] $logger: $data"
-
-    try
-        JSONRPC.send_notification(state.endpoint, "notifications/message", Dict{String,Any}(
-            "level" => string(level),
-            "logger" => logger,
-            "data" => data,
-        ))
-    catch
-        # Endpoint may be closed
+    # stdout is exclusively for MCP messages, so everything diagnostic goes to stderr.
+    if level_rank <= MCP_LOG_LEVELS[:debug]
+        @debug data _group = logger
+    elseif level_rank <= MCP_LOG_LEVELS[:notice]
+        @info data _group = logger
+    elseif level_rank <= MCP_LOG_LEVELS[:warning]
+        @warn data _group = logger
+    else
+        @error data _group = logger
     end
+    return
 end
 
 mcp_debug(state::AppState, logger::String, data) = mcp_log(state, :debug, logger, data)
