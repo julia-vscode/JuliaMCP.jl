@@ -79,7 +79,7 @@ function collect_diagnostics(
     wait_for_ready::Bool=false,
 )
     jw = state.workspace
-    jw === nothing && error("Workspace not configured. Call set_workspace_folders first.")
+    jw === nothing && error("Workspace not configured. Call julia_set_workspace_folders first.")
 
     entries = Tuple{Any,Any}[]
     with_workspace_lock(state) do

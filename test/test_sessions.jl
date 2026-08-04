@@ -2,20 +2,20 @@
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
         session_id = created["session_id"]
         @test created["alive"]
 
         first = MCPTestHelpers.result_json(
-            MCPTestHelpers.call_tool(client, "eval_code", Dict("session_id" => session_id, "code" => "x = 41")))
+            MCPTestHelpers.call_tool(client, "julia_eval_code", Dict("session_id" => session_id, "code" => "x = 41")))
         @test first["status"] == "success"
         @test first["result"] == "41"
 
         second = MCPTestHelpers.result_json(
-            MCPTestHelpers.call_tool(client, "eval_code", Dict("session_id" => session_id, "code" => "x + 1")))
+            MCPTestHelpers.call_tool(client, "julia_eval_code", Dict("session_id" => session_id, "code" => "x + 1")))
         @test second["result"] == "42"
 
-        MCPTestHelpers.call_tool(client, "kill_session", Dict("session_id" => session_id))
+        MCPTestHelpers.call_tool(client, "julia_kill_session", Dict("session_id" => session_id))
     end
 end
 
@@ -24,9 +24,9 @@ end
 
     # Deliberately no set_workspace_folders — sessions are independent of test detection.
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
         result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(
-            client, "eval_code", Dict("session_id" => created["session_id"], "code" => "1 + 1")))
+            client, "julia_eval_code", Dict("session_id" => created["session_id"], "code" => "1 + 1")))
 
         @test result["result"] == "2"
     end
@@ -36,8 +36,8 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
-        raw = MCPTestHelpers.call_tool(client, "eval_code",
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
+        raw = MCPTestHelpers.call_tool(client, "julia_eval_code",
             Dict("session_id" => created["session_id"], "code" => "println(\"before\"); error(\"boom\")"))
 
         @test !MCPTestHelpers.is_error(raw)
@@ -53,13 +53,13 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
         session_id = created["session_id"]
 
         one = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(
-            client, "eval_code", Dict("session_id" => session_id, "code" => "println(\"first-call\")")))
+            client, "julia_eval_code", Dict("session_id" => session_id, "code" => "println(\"first-call\")")))
         two = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(
-            client, "eval_code", Dict("session_id" => session_id, "code" => "println(\"second-call\")")))
+            client, "julia_eval_code", Dict("session_id" => session_id, "code" => "println(\"second-call\")")))
 
         @test occursin("first-call", one["output"])
         @test !occursin("second-call", one["output"])
@@ -72,8 +72,8 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
-        result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "eval_code", Dict(
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
+        result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_eval_code", Dict(
             "session_id" => created["session_id"],
             "code" => "for i in 1:500; println(\"line \$i \", \"x\"^80); end",
             "max_output_bytes" => 2_000,
@@ -89,16 +89,16 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
         session_id = created["session_id"]
 
-        raw = MCPTestHelpers.call_tool(client, "eval_code",
+        raw = MCPTestHelpers.call_tool(client, "julia_eval_code",
             Dict("session_id" => session_id, "code" => "sleep(60)", "timeout" => 2))
         @test MCPTestHelpers.is_error(raw)
         @test MCPTestHelpers.result_json(raw)["timed_out"]
 
         recovered = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(
-            client, "eval_code", Dict("session_id" => session_id, "code" => "6 * 7")))
+            client, "julia_eval_code", Dict("session_id" => session_id, "code" => "6 * 7")))
         @test recovered["result"] == "42"
     end
 end
@@ -107,12 +107,12 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        one = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))["session_id"]
-        two = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))["session_id"]
+        one = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))["session_id"]
+        two = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))["session_id"]
 
-        MCPTestHelpers.call_tool(client, "eval_code", Dict("session_id" => one, "code" => "secret = 99"))
+        MCPTestHelpers.call_tool(client, "julia_eval_code", Dict("session_id" => one, "code" => "secret = 99"))
         result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(
-            client, "eval_code", Dict("session_id" => two, "code" => "isdefined(Main, :secret)")))
+            client, "julia_eval_code", Dict("session_id" => two, "code" => "isdefined(Main, :secret)")))
 
         @test result["result"] == "false"
     end
@@ -125,10 +125,10 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(
-            client, "create_session", Dict("project" => project, "package_name" => "BasicPkg")))
+            client, "julia_create_session", Dict("project" => project, "package_name" => "BasicPkg")))
         session_id = created["session_id"]
 
-        sessions = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "list_sessions"))
+        sessions = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_sessions"))
         @test length(sessions) == 1
         entry = only(sessions)
         @test entry["session_id"] == session_id
@@ -136,8 +136,8 @@ end
         @test occursin("BasicPkg", entry["environment"]["project"])
         @test entry["environment"]["package_name"] == "BasicPkg"
 
-        MCPTestHelpers.call_tool(client, "kill_session", Dict("session_id" => session_id))
-        @test isempty(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "list_sessions")))
+        MCPTestHelpers.call_tool(client, "julia_kill_session", Dict("session_id" => session_id))
+        @test isempty(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_sessions")))
     end
 end
 
@@ -148,8 +148,8 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(
-            client, "create_session", Dict("project" => project, "package_name" => "BasicPkg")))
-        result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "eval_code",
+            client, "julia_create_session", Dict("project" => project, "package_name" => "BasicPkg")))
+        result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_eval_code",
             Dict("session_id" => created["session_id"], "code" => "Base.active_project()")))
 
         @test occursin("BasicPkg", result["result"])
@@ -160,12 +160,12 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
         session_id = created["session_id"]
-        MCPTestHelpers.call_tool(client, "eval_code", Dict("session_id" => session_id, "code" => "answer = 42"))
+        MCPTestHelpers.call_tool(client, "julia_eval_code", Dict("session_id" => session_id, "code" => "answer = 42"))
 
         variables = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(
-            client, "get_session_variables", Dict("session_id" => session_id)))
+            client, "julia_get_session_variables", Dict("session_id" => session_id)))
         names = [v["name"] for v in variables]
 
         @test "answer" in names
@@ -177,14 +177,14 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
         session_id = created["session_id"]
-        MCPTestHelpers.call_tool(client, "eval_code", Dict(
+        MCPTestHelpers.call_tool(client, "julia_eval_code", Dict(
             "session_id" => session_id,
             "code" => "burn(n) = (s = 0.0; for i in 1:n; s += sin(i); end; s); burn(10)",
         ))
 
-        result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "profile_code", Dict(
+        result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_profile_code", Dict(
             "session_id" => session_id,
             "code" => "burn(20_000_000)",
             "max_entries" => 100,
@@ -206,13 +206,13 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        session_id = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))["session_id"]
-        MCPTestHelpers.call_tool(client, "eval_code", Dict(
+        session_id = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))["session_id"]
+        MCPTestHelpers.call_tool(client, "julia_eval_code", Dict(
             "session_id" => session_id,
             "code" => "burn(n) = (s = 0.0; for i in 1:n; s += sin(i); end; s); burn(10)",
         ))
 
-        result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "profile_code", Dict(
+        result = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_profile_code", Dict(
             "session_id" => session_id, "code" => "burn(5_000_000)", "max_entries" => 5,
         )))
 
@@ -225,10 +225,10 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         for (tool, args) in (
-            ("eval_code", Dict("session_id" => "nope", "code" => "1")),
-            ("kill_session", Dict("session_id" => "nope")),
-            ("interrupt_session", Dict("session_id" => "nope")),
-            ("get_session_variables", Dict("session_id" => "nope")),
+            ("julia_eval_code", Dict("session_id" => "nope", "code" => "1")),
+            ("julia_kill_session", Dict("session_id" => "nope")),
+            ("julia_interrupt_session", Dict("session_id" => "nope")),
+            ("julia_get_session_variables", Dict("session_id" => "nope")),
         )
             raw = MCPTestHelpers.call_tool(client, tool, args)
             @test MCPTestHelpers.is_error(raw)
@@ -241,7 +241,7 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))
+        created = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))
         session_id = created["session_id"]
 
         info = MCPTestHelpers.resource_json(MCPTestHelpers.read_resource(client, "session://$session_id/info"))
@@ -259,11 +259,11 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        session_id = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "create_session"))["session_id"]
-        MCPTestHelpers.call_tool(client, "eval_code", Dict("session_id" => session_id, "code" => "y = 1"))
-        MCPTestHelpers.call_tool(client, "kill_session", Dict("session_id" => session_id))
+        session_id = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_create_session"))["session_id"]
+        MCPTestHelpers.call_tool(client, "julia_eval_code", Dict("session_id" => session_id, "code" => "y = 1"))
+        MCPTestHelpers.call_tool(client, "julia_kill_session", Dict("session_id" => session_id))
 
-        raw = MCPTestHelpers.call_tool(client, "eval_code", Dict("session_id" => session_id, "code" => "y"))
+        raw = MCPTestHelpers.call_tool(client, "julia_eval_code", Dict("session_id" => session_id, "code" => "y"))
         @test MCPTestHelpers.is_error(raw)
     end
 end

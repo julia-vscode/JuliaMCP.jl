@@ -46,11 +46,11 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders",
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
         MCPTestHelpers.drain_notifications(client)
 
-        result = MCPTestHelpers.call_tool(client, "run_testitems", Dict{String,Any}();
+        result = MCPTestHelpers.call_tool(client, "julia_run_testitems", Dict{String,Any}();
             progress_token="tok-1")
         @test !MCPTestHelpers.is_error(result)
 
@@ -73,11 +73,11 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders",
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
         MCPTestHelpers.drain_notifications(client)
 
-        MCPTestHelpers.call_tool(client, "run_testitems", Dict{String,Any}("name_pattern" => "^passing\$"))
+        MCPTestHelpers.call_tool(client, "julia_run_testitems", Dict{String,Any}("name_pattern" => "^passing\$"))
 
         msgs = MCPTestHelpers.drain_notifications(client)
         @test isempty(filter(m -> m.method == "notifications/progress", msgs))

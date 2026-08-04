@@ -4,45 +4,46 @@ function resource_templates()
     return [
         Dict{String,Any}(
             "uriTemplate" => "testrun://{testrun_id}/summary",
-            "name" => "Test Run Summary",
-            "description" => "Summary of a test run including pass/fail/error counts and timing.",
+            "name" => "Julia Test Run Summary",
+            "description" => "Summary of a Julia test run including pass/fail/error counts and timing.",
             "mimeType" => "application/json",
         ),
         Dict{String,Any}(
             "uriTemplate" => "testrun://{testrun_id}/failures",
-            "name" => "Test Run Failures",
-            "description" => "Failed and errored test items with messages and stack traces.",
+            "name" => "Julia Test Run Failures",
+            "description" => "Failed and errored Julia test items with messages and stack traces.",
             "mimeType" => "application/json",
         ),
         Dict{String,Any}(
             "uriTemplate" => "testrun://{testrun_id}/items/{testitem_id}/output",
-            "name" => "Test Item Output",
-            "description" => "Captured stdout/stderr for a specific test item.",
+            "name" => "Julia Test Item Output",
+            "description" => "Full captured stdout/stderr for one Julia test item, untruncated. " *
+                             "julia_get_testitem_detail caps its output; read this when that cap bites.",
             "mimeType" => "text/plain",
         ),
         Dict{String,Any}(
             "uriTemplate" => "testrun://{testrun_id}/coverage",
-            "name" => "Test Run Coverage",
-            "description" => "Line-level code coverage from a Coverage-mode test run.",
+            "name" => "Julia Test Run Coverage",
+            "description" => "Line-level Julia code coverage from a Coverage-mode test run.",
             "mimeType" => "application/json",
         ),
         Dict{String,Any}(
             "uriTemplate" => "testprocess://{process_id}/output",
-            "name" => "Test Process Output",
-            "description" => "Raw output of a test worker process. This is where precompilation " *
+            "name" => "Julia Test Worker Output",
+            "description" => "Raw output of a Julia test worker process. This is where precompilation " *
                              "errors and process crashes surface, which no per-item detail can show.",
             "mimeType" => "text/plain",
         ),
         Dict{String,Any}(
             "uriTemplate" => "session://{session_id}/output",
-            "name" => "Session Output",
+            "name" => "Julia Session Output",
             "description" => "Recent output of a Julia session that was not attributed to a " *
-                             "specific eval_code call, such as printing from a background task.",
+                             "specific julia_eval_code call, such as printing from a background task.",
             "mimeType" => "text/plain",
         ),
         Dict{String,Any}(
             "uriTemplate" => "session://{session_id}/info",
-            "name" => "Session Info",
+            "name" => "Julia Session Info",
             "description" => "Status and environment of a Julia session.",
             "mimeType" => "application/json",
         ),
@@ -81,20 +82,20 @@ function dynamic_resources(state::AppState)
     end
     push!(res, Dict{String,Any}(
         "uri" => "workspace://testitems",
-        "name" => "Detected Test Items",
-        "description" => "All test items detected in the current workspace.",
+        "name" => "Detected Julia Test Items",
+        "description" => "All Julia test items (@testitem blocks) detected in the current workspace.",
         "mimeType" => "application/json",
     ))
     push!(res, Dict{String,Any}(
         "uri" => "workspace://detection-errors",
-        "name" => "Detection Errors",
-        "description" => "Errors encountered during test item detection.",
+        "name" => "Julia Test Item Detection Errors",
+        "description" => "Errors encountered while detecting Julia test items.",
         "mimeType" => "application/json",
     ))
     push!(res, Dict{String,Any}(
         "uri" => "workspace://diagnostics",
-        "name" => "Workspace Diagnostics",
-        "description" => "Syntax errors and lint warnings across the current workspace.",
+        "name" => "Julia Workspace Diagnostics",
+        "description" => "Julia syntax errors and lint warnings across the current workspace.",
         "mimeType" => "application/json",
     ))
     return res
@@ -140,7 +141,7 @@ function read_resource(state::AppState, uri::String)
         run = lock(state.lock) do
             get(state.runs, run_id, nothing)
         end
-        run === nothing && error("Test run not found: $run_id")
+        run === nothing && throw(ResourceNotFound(uri, "Test run not found: $run_id"))
         summary = lock(state.lock) do
             run_summary(run)
         end
@@ -154,7 +155,7 @@ function read_resource(state::AppState, uri::String)
         run = lock(state.lock) do
             get(state.runs, run_id, nothing)
         end
-        run === nothing && error("Test run not found: $run_id")
+        run === nothing && throw(ResourceNotFound(uri, "Test run not found: $run_id"))
         failures = lock(state.lock) do
             [
                 Dict{String,Any}(
@@ -181,7 +182,7 @@ function read_resource(state::AppState, uri::String)
             item === nothing && return nothing
             join(item.output, "")
         end
-        output === nothing && error("Test item not found: $item_id in run $run_id")
+        output === nothing && throw(ResourceNotFound(uri, "Test item not found: $item_id in run $run_id"))
         return [Dict{String,Any}("uri" => uri, "mimeType" => "text/plain", "text" => output)]
     end
 
@@ -194,7 +195,7 @@ function read_resource(state::AppState, uri::String)
             run === nothing && return nothing
             run.coverage
         end
-        coverage === nothing && error("No coverage data for run: $run_id")
+        coverage === nothing && throw(ResourceNotFound(uri, "No coverage data for run: $run_id"))
         return [Dict{String,Any}("uri" => uri, "mimeType" => "application/json", "text" => JSON.json(coverage))]
     end
 
@@ -206,7 +207,7 @@ function read_resource(state::AppState, uri::String)
             buf = get(state.process_outputs, process_id, nothing)
             buf === nothing ? nothing : join(buf, "")
         end
-        output === nothing && error("Test process not found: $process_id")
+        output === nothing && throw(ResourceNotFound(uri, "Test process not found: $process_id"))
         return [Dict{String,Any}("uri" => uri, "mimeType" => "text/plain", "text" => output)]
     end
 
@@ -218,7 +219,7 @@ function read_resource(state::AppState, uri::String)
             rec = get(state.sessions, session_id, nothing)
             rec === nothing ? nothing : join(rec.output, "")
         end
-        output === nothing && error("Session not found: $session_id")
+        output === nothing && throw(ResourceNotFound(uri, "Session not found: $session_id"))
         return [Dict{String,Any}("uri" => uri, "mimeType" => "text/plain", "text" => output)]
     end
 
@@ -230,11 +231,11 @@ function read_resource(state::AppState, uri::String)
             rec = get(state.sessions, session_id, nothing)
             rec === nothing ? nothing : session_dict(rec)
         end
-        info === nothing && error("Session not found: $session_id")
+        info === nothing && throw(ResourceNotFound(uri, "Session not found: $session_id"))
         return [Dict{String,Any}("uri" => uri, "mimeType" => "application/json", "text" => JSON.json(info))]
     end
 
-    error("Unknown resource URI: $uri")
+    throw(ResourceNotFound(uri, "Unknown resource URI: $uri"))
 end
 
 function handle_resources_subscribe(state::AppState, params::Dict)

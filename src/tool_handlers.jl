@@ -27,47 +27,47 @@ function handle_tool_call(state::AppState, tool_name::String, arguments::Dict{St
     invalid = validate_tool_arguments(tool_name, arguments)
     invalid === nothing || return invalid
 
-    if tool_name == "set_workspace_folders"
+    if tool_name == "julia_set_workspace_folders"
         return tool_set_workspace_folders(state, arguments)
-    elseif tool_name == "update_file"
+    elseif tool_name == "julia_update_file"
         return tool_update_file(state, arguments)
-    elseif tool_name == "get_diagnostics"
+    elseif tool_name == "julia_get_diagnostics"
         return tool_get_diagnostics(state, arguments)
-    elseif tool_name == "format_file"
+    elseif tool_name == "julia_format_file"
         return tool_format_file(state, arguments)
-    elseif tool_name == "list_testitems"
+    elseif tool_name == "julia_list_testitems"
         return tool_list_testitems(state, arguments)
-    elseif tool_name == "run_testitems"
+    elseif tool_name == "julia_run_testitems"
         return tool_run_testitems(state, arguments; progress_token=progress_token)
-    elseif tool_name == "rerun_failed"
+    elseif tool_name == "julia_rerun_failed"
         return tool_rerun_failed(state, arguments; progress_token=progress_token)
-    elseif tool_name == "cancel_testrun"
+    elseif tool_name == "julia_cancel_testrun"
         return tool_cancel_testrun(state, arguments)
-    elseif tool_name == "get_testrun_results"
+    elseif tool_name == "julia_get_testrun_results"
         return tool_get_testrun_results(state, arguments)
-    elseif tool_name == "get_testitem_detail"
+    elseif tool_name == "julia_get_testitem_detail"
         return tool_get_testitem_detail(state, arguments)
-    elseif tool_name == "list_testruns"
+    elseif tool_name == "julia_list_testruns"
         return tool_list_testruns(state, arguments)
-    elseif tool_name == "list_test_processes"
+    elseif tool_name == "julia_list_test_processes"
         return tool_list_test_processes(state, arguments)
-    elseif tool_name == "terminate_test_process"
+    elseif tool_name == "julia_terminate_test_process"
         return tool_terminate_test_process(state, arguments)
-    elseif tool_name == "get_coverage_results"
+    elseif tool_name == "julia_get_coverage_results"
         return tool_get_coverage_results(state, arguments)
-    elseif tool_name == "create_session"
+    elseif tool_name == "julia_create_session"
         return tool_create_session(state, arguments)
-    elseif tool_name == "eval_code"
+    elseif tool_name == "julia_eval_code"
         return tool_eval_code(state, arguments)
-    elseif tool_name == "interrupt_session"
+    elseif tool_name == "julia_interrupt_session"
         return tool_interrupt_session(state, arguments)
-    elseif tool_name == "kill_session"
+    elseif tool_name == "julia_kill_session"
         return tool_kill_session(state, arguments)
-    elseif tool_name == "list_sessions"
+    elseif tool_name == "julia_list_sessions"
         return tool_list_sessions(state, arguments)
-    elseif tool_name == "profile_code"
+    elseif tool_name == "julia_profile_code"
         return tool_profile_code(state, arguments)
-    elseif tool_name == "get_session_variables"
+    elseif tool_name == "julia_get_session_variables"
         return tool_get_session_variables(state, arguments)
     else
         error("Unknown tool: $tool_name")
@@ -88,6 +88,8 @@ function tool_set_workspace_folders(state::AppState, args::Dict{String,Any})
     # Initialize controller on first workspace setup
     init_controller!(state)
 
+    # `watch` is not advertised in the tool schema; watching is the only sane default for a
+    # client, but tests and embedders still need to opt out.
     if something(get(args, "watch", nothing), true)
         start_watcher!(
             state;
@@ -118,9 +120,13 @@ end
 # --- update_file ---
 
 function tool_update_file(state::AppState, args::Dict{String,Any})
+    # Unadvertised, so `validate_tool_arguments` has no schema to check `path` against.
+    haskey(args, "path") && args["path"] !== nothing ||
+        return tool_result_error("Missing required argument(s) for julia_update_file: path")
+
     path = args["path"]::String
     jw = state.workspace
-    jw === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
+    jw === nothing && return tool_result_error("Workspace not configured. Call julia_set_workspace_folders first.")
 
     with_workspace_lock(state) do
         JuliaWorkspaces.update_file_from_disc!(jw, path)
@@ -138,7 +144,7 @@ end
 # --- get_diagnostics ---
 
 function tool_get_diagnostics(state::AppState, args::Dict{String,Any})
-    state.workspace === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
+    state.workspace === nothing && return tool_result_error("Workspace not configured. Call julia_set_workspace_folders first.")
 
     uri = haskey(args, "path") && args["path"] !== nothing ? resolve_uri(args["path"]::String) : nothing
     if uri !== nothing && !with_workspace_lock(() -> JuliaWorkspaces.has_file(state.workspace, uri), state)
@@ -165,7 +171,7 @@ end
 
 function tool_format_file(state::AppState, args::Dict{String,Any})
     jw = state.workspace
-    jw === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
+    jw === nothing && return tool_result_error("Workspace not configured. Call julia_set_workspace_folders first.")
 
     path = args["path"]::String
     uri = resolve_uri(path)
@@ -216,7 +222,7 @@ end
 # --- list_testitems ---
 
 function tool_list_testitems(state::AppState, args::Dict{String,Any})
-    state.workspace === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
+    state.workspace === nothing && return tool_result_error("Workspace not configured. Call julia_set_workspace_folders first.")
 
     filter = build_filter(args)
     items = collect_testitems_list(state; filter=filter)
@@ -227,7 +233,7 @@ end
 # --- run_testitems ---
 
 function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_token=nothing)
-    state.workspace === nothing && return tool_result_error("Workspace not configured. Call set_workspace_folders first.")
+    state.workspace === nothing && return tool_result_error("Workspace not configured. Call julia_set_workspace_folders first.")
 
     init_controller!(state)
 
@@ -340,7 +346,7 @@ end
 """
 Compact result payload: a summary plus one status line per test item. Failure messages,
 stack traces and captured output are deliberately excluded — they are unbounded, and a
-broadly-failing suite would otherwise flood the caller's context. `get_testitem_detail`
+broadly-failing suite would otherwise flood the caller's context. `julia_get_testitem_detail`
 serves them on demand.
 """
 function collect_run_payload(state::AppState, run::TestRunRecord, summary, args::Dict{String,Any})
@@ -362,7 +368,7 @@ function collect_run_payload(state::AppState, run::TestRunRecord, summary, args:
         "total_matching_items" => selected,
         "items_truncated" => selected > length(items_out),
         "detail_hint" => "Messages, stack traces and captured output are not included here. " *
-                         "Call get_testitem_detail with testrun_id=\"$(run.id)\" and " *
+                         "Call julia_get_testitem_detail with testrun_id=\"$(run.id)\" and " *
                          "testitem_ids=[...] for the items you want to inspect.",
     )
     if !include_passing

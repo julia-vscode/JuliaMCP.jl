@@ -34,9 +34,9 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "LintPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
-        result = MCPTestHelpers.call_tool(client, "get_diagnostics")
+        result = MCPTestHelpers.call_tool(client, "julia_get_diagnostics")
         @test !MCPTestHelpers.is_error(result)
         report = MCPTestHelpers.result_json(result)
 
@@ -62,17 +62,17 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "LintPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
         bad = joinpath(pkg, "src", "badsyntax.jl")
         report = MCPTestHelpers.result_json(
-            MCPTestHelpers.call_tool(client, "get_diagnostics", Dict{String,Any}("path" => bad)))
+            MCPTestHelpers.call_tool(client, "julia_get_diagnostics", Dict{String,Any}("path" => bad)))
         @test report["total"] >= 1
         @test all(f -> occursin("badsyntax.jl", f["uri"]), report["files"])
 
         clean = joinpath(pkg, "src", "unformatted.jl")
         clean_report = MCPTestHelpers.result_json(
-            MCPTestHelpers.call_tool(client, "get_diagnostics", Dict{String,Any}("path" => clean)))
+            MCPTestHelpers.call_tool(client, "julia_get_diagnostics", Dict{String,Any}("path" => clean)))
         @test clean_report["total"] == 0
         @test clean_report["files"] == []
     end
@@ -83,26 +83,26 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "LintPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
-        by_source = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "get_diagnostics",
+        by_source = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_get_diagnostics",
             Dict{String,Any}("source" => ["JuliaSyntax.jl"])))
         all_diags = reduce(vcat, [f["diagnostics"] for f in by_source["files"]]; init=Any[])
         @test !isempty(all_diags)
         @test all(d -> d["source"] == "JuliaSyntax.jl", all_diags)
 
-        none = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "get_diagnostics",
+        none = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_get_diagnostics",
             Dict{String,Any}("source" => ["NoSuchSource"])))
         @test none["total"] == 0
 
-        truncated = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "get_diagnostics",
+        truncated = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_get_diagnostics",
             Dict{String,Any}("max_results" => 1)))
         @test truncated["reported"] == 1
         if truncated["total"] > 1
             @test truncated["truncated"] == true
         end
 
-        by_severity = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "get_diagnostics",
+        by_severity = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_get_diagnostics",
             Dict{String,Any}("severity" => ["error"])))
         errs = reduce(vcat, [f["diagnostics"] for f in by_severity["files"]]; init=Any[])
         @test all(d -> d["severity"] == "error", errs)
@@ -113,14 +113,14 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        result = MCPTestHelpers.call_tool(client, "get_diagnostics")
+        result = MCPTestHelpers.call_tool(client, "julia_get_diagnostics")
         @test MCPTestHelpers.is_error(result)
-        @test occursin("set_workspace_folders", MCPTestHelpers.result_text(result))
+        @test occursin("julia_set_workspace_folders", MCPTestHelpers.result_text(result))
 
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "LintPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
-        outside = MCPTestHelpers.call_tool(client, "get_diagnostics",
+        outside = MCPTestHelpers.call_tool(client, "julia_get_diagnostics",
             Dict{String,Any}("path" => joinpath(pkg, "src", "does_not_exist.jl")))
         @test MCPTestHelpers.is_error(outside)
         @test occursin("not part of the workspace", MCPTestHelpers.result_text(outside))
@@ -135,7 +135,7 @@ end
         @test "workspace://diagnostics" in uris
 
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "LintPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
         report = MCPTestHelpers.resource_json(MCPTestHelpers.read_resource(client, "workspace://diagnostics"))
         @test report["total"] >= 1

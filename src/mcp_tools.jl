@@ -1,47 +1,59 @@
 # mcp_tools.jl — MCP tool definitions with JSON Schema
 
+# `title` belongs inside `annotations` in protocol 2025-03-26. Nothing here reaches the
+# network, so `openWorldHint` is always false.
+function tool_annotations(title::String; read_only::Bool=false, destructive::Bool=false, idempotent::Bool=false)
+    return Dict{String,Any}(
+        "title" => title,
+        "readOnlyHint" => read_only,
+        "destructiveHint" => destructive,
+        "idempotentHint" => idempotent,
+        "openWorldHint" => false,
+    )
+end
+
+# `update_file` is deliberately not advertised: the workspace tracks the file system
+# itself, so offering a manual refresh only invites needless calls. It stays routed in
+# `handle_tool_call` for the `watch=false` path.
 function tool_definitions()
     return [
         Dict{String,Any}(
-            "name" => "set_workspace_folders",
-            "description" => "Set the workspace folders for test item detection. Call this first to configure which Julia packages/projects to scan for @testitem and @testsetup macros. Replaces any previous workspace configuration.",
+            "name" => "julia_set_workspace_folders",
+            "description" => "Load Julia packages or projects into this server's workspace. This is a " *
+                             "prerequisite for every other Julia workspace tool — julia_get_diagnostics, " *
+                             "julia_format_file, julia_list_testitems and julia_run_testitems all fail until " *
+                             "it has been called. Parses the Julia source under each folder, resolves the " *
+                             "Project.toml/Manifest.toml environments, and detects @testitem and @testsetup " *
+                             "blocks. The workspace then keeps itself up to date as files change on disk, so " *
+                             "nothing needs to be called after editing a file. Calling this again replaces the " *
+                             "previous configuration. Julia sessions (julia_create_session) are separate and " *
+                             "need no workspace.",
+            "annotations" => tool_annotations("Set Julia workspace folders"; destructive=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
                     "folders" => Dict{String,Any}(
                         "type" => "array",
                         "items" => Dict{String,Any}("type" => "string"),
-                        "description" => "Absolute paths to workspace folders to scan for test items.",
-                    ),
-                    "watch" => Dict{String,Any}(
-                        "type" => "boolean",
-                        "description" => "Automatically refresh the workspace when files change on disk. Defaults to true; when disabled, call update_file after each edit.",
+                        "description" => "Absolute paths of the Julia package or project folders to load, normally the repository roots being worked on.",
                     ),
                     "watch_interval" => Dict{String,Any}(
                         "type" => "number",
-                        "description" => "Seconds between file system scans (default $(WATCH_INTERVAL_DEFAULT)).",
+                        "description" => "Seconds between file system scans (default $(WATCH_INTERVAL_DEFAULT)). The workspace always tracks the file system; this only tunes how quickly edits are noticed.",
                     ),
                 ),
                 "required" => ["folders"],
             ),
         ),
         Dict{String,Any}(
-            "name" => "update_file",
-            "description" => "Notify the server that a file has changed on disk. Only needed when watching is disabled — by default the workspace refreshes automatically.",
-            "inputSchema" => Dict{String,Any}(
-                "type" => "object",
-                "properties" => Dict{String,Any}(
-                    "path" => Dict{String,Any}(
-                        "type" => "string",
-                        "description" => "Absolute file path that was changed.",
-                    ),
-                ),
-                "required" => ["path"],
-            ),
-        ),
-        Dict{String,Any}(
-            "name" => "get_diagnostics",
-            "description" => "Get syntax errors, lint warnings, and test item detection errors for the workspace, or for a single file. Results are grouped by file with 1-based line/column positions.",
+            "name" => "julia_get_diagnostics",
+            "description" => "Report Julia syntax errors, lint warnings and test item detection errors, for " *
+                             "the whole workspace or a single file. This is static analysis: no Julia code is " *
+                             "run and nothing is compiled, so it is cheap enough to call after every edit. " *
+                             "Prefer it over shelling out to julia to check whether a file parses. Results are " *
+                             "grouped by file with 1-based line/column positions. Requires " *
+                             "julia_set_workspace_folders.",
+            "annotations" => tool_annotations("Get Julia diagnostics"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -65,14 +77,19 @@ function tool_definitions()
                     ),
                     "wait_for_ready" => Dict{String,Any}(
                         "type" => "boolean",
-                        "description" => "Wait for environment-dependent analysis to finish before reporting. Slower, but required for checks such as unresolved imports and missing references.",
+                        "description" => "Wait for environment-dependent analysis (package resolution) to finish first. Slower, but required for checks that need the surrounding environment, such as unresolved imports and missing references — without it those checks are silently absent.",
                     ),
                 ),
             ),
         ),
         Dict{String,Any}(
-            "name" => "format_file",
-            "description" => "Format a Julia file using the style from the nearest juliaformat.toml (JuliaFormatter by default, or Runic when style=\"runic\"). Returns the edits by default; set apply=true to write them to disk.",
+            "name" => "julia_format_file",
+            "description" => "Format Julia source code with the style configured by the nearest " *
+                             "juliaformat.toml (JuliaFormatter by default, or Runic when style=\"runic\"). " *
+                             "Returns the text edits without touching disk; set apply=true to write them and " *
+                             "refresh the workspace. Requires julia_set_workspace_folders, and only works on " *
+                             "files inside the workspace.",
+            "annotations" => tool_annotations("Format a Julia file"; idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -97,15 +114,25 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "list_testitems",
-            "description" => "List all detected test items, optionally filtered by tags, name pattern, file pattern, or package name.",
+            "name" => "julia_list_testitems",
+            "description" => "List the Julia test items (@testitem blocks from TestItems.jl) detected in the " *
+                             "workspace, with their ids, names, tags, packages and source locations. Call this " *
+                             "before julia_run_testitems to see what can be run and to get ids for filtering. " *
+                             "An empty result means the workspace does not use test items, in which case fall " *
+                             "back to the package's own test entrypoint. Requires julia_set_workspace_folders.",
+            "annotations" => tool_annotations("List Julia test items"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
+                    "items" => Dict{String,Any}(
+                        "type" => "array",
+                        "items" => Dict{String,Any}("type" => "string"),
+                        "description" => "Filter to these specific test item ids.",
+                    ),
                     "tags" => Dict{String,Any}(
                         "type" => "array",
                         "items" => Dict{String,Any}("type" => "string"),
-                        "description" => "Filter to items containing at least one of these tags.",
+                        "description" => "Filter to items carrying at least one of these tags.",
                     ),
                     "name_pattern" => Dict{String,Any}(
                         "type" => "string",
@@ -123,24 +150,30 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "run_testitems",
-            "description" => "Run test items. Blocks until all tests complete. Returns a summary plus a " *
-                             "compact status line per test item — failure messages, stack traces and captured " *
-                             "output are NOT included; call get_testitem_detail for those. If no items or " *
-                             "filter are specified, runs all detected test items. Test processes are reused " *
-                             "across runs with Revise-based hot-reload for fast iteration.",
+            "name" => "julia_run_testitems",
+            "description" => "Run Julia test items and block until they finish. This is the right way to run " *
+                             "tests for a workspace that uses TestItems.jl — use it instead of shelling out to " *
+                             "Pkg.test() or `julia --project -e`, which recompile everything and cannot report " *
+                             "per-test results. Test items run in Julia worker processes that stay alive " *
+                             "between calls and hot-reload edits via Revise, so repeat runs skip startup and " *
+                             "most compilation. Runs every detected item when no filter is given; narrow with " *
+                             "items, tags, name_pattern, file_pattern or package. Returns a summary plus one " *
+                             "compact status line per item — failure messages, stack traces and captured " *
+                             "output are deliberately omitted; call julia_get_testitem_detail with the ids you " *
+                             "care about for those. Requires julia_set_workspace_folders.",
+            "annotations" => tool_annotations("Run Julia test items"),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
                     "items" => Dict{String,Any}(
                         "type" => "array",
                         "items" => Dict{String,Any}("type" => "string"),
-                        "description" => "Specific test item IDs to run. If omitted, runs all (or filtered) items.",
+                        "description" => "Specific test item ids to run, as reported by julia_list_testitems. If omitted, runs all (or filtered) items.",
                     ),
                     "tags" => Dict{String,Any}(
                         "type" => "array",
                         "items" => Dict{String,Any}("type" => "string"),
-                        "description" => "Filter to items containing at least one of these tags.",
+                        "description" => "Filter to items carrying at least one of these tags.",
                     ),
                     "name_pattern" => Dict{String,Any}(
                         "type" => "string",
@@ -174,7 +207,7 @@ function tool_definitions()
                     "mode" => Dict{String,Any}(
                         "type" => "string",
                         "enum" => ["Normal", "Coverage"],
-                        "description" => "Execution mode (default: \"Run\").",
+                        "description" => "Execution mode (default \"Normal\"). Use \"Coverage\" to collect line coverage, then read it with julia_get_coverage_results.",
                     ),
                     "timeout" => Dict{String,Any}(
                         "type" => "number",
@@ -197,8 +230,12 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "rerun_failed",
-            "description" => "Re-run only the failed and errored test items from a previous test run.",
+            "name" => "julia_rerun_failed",
+            "description" => "Re-run only the failed and errored Julia test items from an earlier run, reusing " *
+                             "that run's settings. Returns a new test run id; the original run is left intact. " *
+                             "The usual loop is julia_run_testitems, fix the code, then this — the worker " *
+                             "processes pick up the fix via Revise.",
+            "annotations" => tool_annotations("Re-run failed Julia test items"),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -215,8 +252,12 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "cancel_testrun",
-            "description" => "Cancel an active test run.",
+            "name" => "julia_cancel_testrun",
+            "description" => "Cancel an in-progress Julia test run. Items that have not finished are abandoned; " *
+                             "results already collected stay readable via julia_get_testrun_results. Only " *
+                             "meaningful while a run is still going, so it has to come from somewhere other " *
+                             "than the blocking julia_run_testitems call.",
+            "annotations" => tool_annotations("Cancel a Julia test run"; destructive=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -229,10 +270,11 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "get_testrun_results",
-            "description" => "Get results for a completed or in-progress test run: a summary plus a compact " *
-                             "status line per test item. Use get_testitem_detail for failure messages, stack " *
-                             "traces and captured output.",
+            "name" => "julia_get_testrun_results",
+            "description" => "Get the summary and per-item status lines for a Julia test run, whether it has " *
+                             "completed or is still going. Same compact shape julia_run_testitems returns — use " *
+                             "julia_get_testitem_detail for failure messages, stack traces and captured output.",
+            "annotations" => tool_annotations("Get Julia test run results"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -253,10 +295,15 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "get_testitem_detail",
-            "description" => "Get detailed results for one or more test items in a run: failure messages, " *
-                             "stack traces, and captured output (stdout and stderr interleaved). This is the " *
-                             "follow-up to run_testitems — pass every id you want to inspect in one call.",
+            "name" => "julia_get_testitem_detail",
+            "description" => "Get the full result of one or more Julia test items: failure messages, stack " *
+                             "traces, and captured output (stdout and stderr interleaved). This is the " *
+                             "follow-up to julia_run_testitems — pass every id you want to inspect in a single " *
+                             "call rather than one call per item. Supply testitem_ids or testitem_id; at least " *
+                             "one is required. If a whole worker process died before running anything (a " *
+                             "precompilation error, say), the cause is in the testprocess://{process_id}/output " *
+                             "resource instead.",
+            "annotations" => tool_annotations("Get Julia test item detail"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -264,11 +311,11 @@ function tool_definitions()
                     "testitem_ids" => Dict{String,Any}(
                         "type" => "array",
                         "items" => Dict{String,Any}("type" => "string"),
-                        "description" => "Test item IDs to inspect. Unknown ids are reported per item rather than failing the call.",
+                        "description" => "Test item ids to inspect. Unknown ids are reported per item rather than failing the call.",
                     ),
                     "testitem_id" => Dict{String,Any}(
                         "type" => "string",
-                        "description" => "Single test item ID. Prefer testitem_ids for more than one.",
+                        "description" => "Single test item id. Prefer testitem_ids for more than one.",
                     ),
                     "max_output_bytes" => Dict{String,Any}(
                         "type" => "integer",
@@ -288,24 +335,35 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "list_testruns",
-            "description" => "List all test runs with their status summaries.",
+            "name" => "julia_list_testruns",
+            "description" => "List every Julia test run this server has started, with status and pass/fail " *
+                             "counts. Use it to recover a testrun_id for julia_get_testrun_results, " *
+                             "julia_get_testitem_detail or julia_rerun_failed.",
+            "annotations" => tool_annotations("List Julia test runs"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(),
             ),
         ),
         Dict{String,Any}(
-            "name" => "list_test_processes",
-            "description" => "List active test worker processes managed by the controller.",
+            "name" => "julia_list_test_processes",
+            "description" => "List the Julia worker processes currently held for running test items. They " *
+                             "persist between runs by design — that is what makes repeat runs fast. Read the " *
+                             "testprocess://{process_id}/output resource for a process's raw output, which is " *
+                             "where precompilation and startup failures show up.",
+            "annotations" => tool_annotations("List Julia test workers"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(),
             ),
         ),
         Dict{String,Any}(
-            "name" => "terminate_test_process",
-            "description" => "Terminate a specific test worker process.",
+            "name" => "julia_terminate_test_process",
+            "description" => "Kill a Julia test worker process. Its loaded packages and compiled code are " *
+                             "lost, so the next run needing it pays full Julia startup and precompilation " *
+                             "again. Only worth doing when a worker is wedged or Revise cannot apply a change — " *
+                             "editing a struct definition, for instance.",
+            "annotations" => tool_annotations("Terminate a Julia test worker"; destructive=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -315,8 +373,10 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "get_coverage_results",
-            "description" => "Get line-level coverage results from a Coverage-mode test run.",
+            "name" => "julia_get_coverage_results",
+            "description" => "Get line-level Julia code coverage for a test run. Only available for runs " *
+                             "started with mode=\"Coverage\"; anything else returns an error.",
+            "annotations" => tool_annotations("Get Julia coverage results"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -326,12 +386,17 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "create_session",
-            "description" => "Start a persistent Julia session and return its session_id. State (variables, " *
-                             "functions, loaded packages) survives between eval_code calls, so iterating in a " *
-                             "session avoids Julia's startup and compilation costs. Sessions are independent of " *
-                             "the test workspace — set_workspace_folders is not required. The response echoes the " *
-                             "resolved environment; pass it back here to replace a session that died.",
+            "name" => "julia_create_session",
+            "description" => "Start a persistent Julia process and return its session_id. State — variables, " *
+                             "functions, loaded packages, compiled code — survives across julia_eval_code " *
+                             "calls, so iterating inside one session avoids paying Julia's startup and " *
+                             "compilation cost over and over. Prefer this over shelling out to `julia -e` for " *
+                             "anything beyond a single throwaway command. Revise is loaded, so edits made to " *
+                             "package source on disk take effect on the next evaluation without a restart. " *
+                             "Sessions are independent of the analysis workspace: julia_set_workspace_folders " *
+                             "is not required. The response echoes the resolved environment; pass it back here " *
+                             "to replace a session that died.",
+            "annotations" => tool_annotations("Start a Julia session"),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -372,15 +437,19 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "eval_code",
-            "description" => "Evaluate Julia code in a session and return the value, captured output, and any " *
-                             "error. An error is a normal result with status \"error\", not a tool failure. " *
-                             "Definitions and variables persist for later calls.",
+            "name" => "julia_eval_code",
+            "description" => "Evaluate Julia code in a persistent session and return the value, captured " *
+                             "output, and any error. A Julia exception comes back as a normal result with " *
+                             "status \"error\" rather than a tool failure, so the message and backtrace are " *
+                             "there to read. Definitions and variables persist for later calls in the same " *
+                             "session. Revise runs first by default, so edits made to package source on disk " *
+                             "are picked up before the code runs.",
+            "annotations" => tool_annotations("Evaluate Julia code"),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
-                    "session_id" => Dict{String,Any}("type" => "string", "description" => "Session to evaluate in, from create_session."),
-                    "code" => Dict{String,Any}("type" => "string", "description" => "Julia code to evaluate. Multiple top-level statements are allowed; the last value is returned."),
+                    "session_id" => Dict{String,Any}("type" => "string", "description" => "Session to evaluate in, from julia_create_session."),
+                    "code" => Dict{String,Any}("type" => "string", "description" => "Julia code to evaluate. Multiple top-level statements are allowed; the value of the last one is returned."),
                     "module" => Dict{String,Any}("type" => "string", "description" => "Module to evaluate in (default \"Main\")."),
                     "revise" => Dict{String,Any}(
                         "type" => "boolean",
@@ -388,7 +457,7 @@ function tool_definitions()
                     ),
                     "timeout" => Dict{String,Any}(
                         "type" => "number",
-                        "description" => "Seconds before the evaluation is interrupted. Omit for no timeout; long precompilation can take minutes.",
+                        "description" => "Seconds before the evaluation is interrupted. Omit for no timeout; Julia precompilation can take minutes.",
                     ),
                     "max_output_bytes" => Dict{String,Any}(
                         "type" => "integer",
@@ -399,11 +468,13 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "interrupt_session",
-            "description" => "Interrupt whatever a session is currently evaluating. Queued requests are " *
-                             "discarded. The session stays alive and usable. Note that code which never yields " *
-                             "(for example `while true; end`) may not be interruptible on Windows — kill_session " *
-                             "is the only recourse there.",
+            "name" => "julia_interrupt_session",
+            "description" => "Interrupt whatever a Julia session is currently evaluating, as Ctrl-C would. " *
+                             "Queued requests are discarded and the session stays alive and usable. Julia code " *
+                             "that never yields (`while true; end`, or a long call into a C library) may not be " *
+                             "interruptible, especially on Windows — julia_kill_session is the only recourse " *
+                             "there.",
+            "annotations" => tool_annotations("Interrupt a Julia session"; idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -413,9 +484,11 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "kill_session",
-            "description" => "Terminate a session and discard its state. To start over with the same setup, " *
-                             "call create_session with the environment reported by list_sessions.",
+            "name" => "julia_kill_session",
+            "description" => "Terminate a Julia session and discard all of its state. There is no restart " *
+                             "tool: to start over with the same setup, call julia_create_session with the " *
+                             "environment julia_list_sessions reports for it.",
+            "annotations" => tool_annotations("Kill a Julia session"; destructive=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -425,14 +498,20 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "list_sessions",
-            "description" => "List Julia sessions with their status and the environment each was created with.",
+            "name" => "julia_list_sessions",
+            "description" => "List the Julia sessions this server manages, with each one's status and the " *
+                             "environment it was created with. That environment is what julia_create_session " *
+                             "needs to recreate a session after julia_kill_session.",
+            "annotations" => tool_annotations("List Julia sessions"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}("type" => "object", "properties" => Dict{String,Any}()),
         ),
         Dict{String,Any}(
-            "name" => "profile_code",
-            "description" => "Profile Julia code in a session and return the hottest functions by self and total " *
-                             "sample count. Use kind=\"alloc\" for an allocation profile (Julia 1.8+).",
+            "name" => "julia_profile_code",
+            "description" => "Profile Julia code in a session and return the hottest functions by self and " *
+                             "total sample count. Use kind=\"alloc\" for an allocation profile instead of CPU " *
+                             "sampling. Run the code once with julia_eval_code first — otherwise compilation " *
+                             "dominates the samples and the profile says nothing useful.",
+            "annotations" => tool_annotations("Profile Julia code"),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(
@@ -454,10 +533,12 @@ function tool_definitions()
             ),
         ),
         Dict{String,Any}(
-            "name" => "get_session_variables",
-            "description" => "List the bindings of a module in a session, with rendered values. Values too " *
-                             "expensive to render come back with lazy=true and an id — pass that id back as " *
-                             "variable_id to expand them.",
+            "name" => "julia_get_session_variables",
+            "description" => "List the bindings of a module in a Julia session with rendered values — the " *
+                             "equivalent of a debugger's variable pane. Values too expensive to render eagerly " *
+                             "come back with lazy=true and an id; pass that id back as variable_id to expand " *
+                             "that value's children.",
+            "annotations" => tool_annotations("Inspect Julia session variables"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
                 "properties" => Dict{String,Any}(

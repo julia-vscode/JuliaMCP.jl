@@ -2,7 +2,7 @@
 
 function resolve_testitems(state::AppState; filter=nothing)
     jw = state.workspace
-    jw === nothing && error("Workspace not configured. Call set_workspace_folders first.")
+    jw === nothing && error("Workspace not configured. Call julia_set_workspace_folders first.")
 
     items = TestItemControllers.TestItemDetail[]
     setups = TestItemControllers.TestSetupDetail[]

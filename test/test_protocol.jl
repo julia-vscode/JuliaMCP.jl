@@ -12,7 +12,7 @@
         @test haskey(result["capabilities"], "tools")
         # MCP Logging is deprecated as of spec 2026-07-28; we log to stderr instead.
         @test !haskey(result["capabilities"], "logging")
-        @test occursin("set_workspace_folders", result["instructions"])
+        @test occursin("julia_set_workspace_folders", result["instructions"])
     end
 end
 

@@ -15,7 +15,7 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
         items = MCPTestHelpers.resource_json(MCPTestHelpers.read_resource(client, "workspace://testitems"))
         @test length(items) == 7
@@ -30,14 +30,25 @@ end
     using JuliaMCP: JSONRPC
 
     MCPTestHelpers.with_mcp_server() do client
-        @test_throws JSONRPC.JSONRPCError MCPTestHelpers.read_resource(client, "bogus://nothing")
-        @test_throws JSONRPC.JSONRPCError MCPTestHelpers.read_resource(client, "testrun://missing/summary")
+        # A client naming a resource that does not exist is not a server fault, so the
+        # resources spec asks for -32002 rather than -32603.
+        for uri in ("bogus://nothing", "testrun://missing/summary")
+            err = try
+                MCPTestHelpers.read_resource(client, uri)
+                nothing
+            catch e
+                e
+            end
+            @test err isa JSONRPC.JSONRPCError
+            @test err.code == JuliaMCP.MCP_ERROR_RESOURCE_NOT_FOUND
+            @test err.data["uri"] == uri
+        end
     end
 end
 
 @testitem "read_resource URI routing" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
-    using JuliaMCP: read_resource, TestRunRecord, TestItemResult, run_summary
+    using JuliaMCP: read_resource, ResourceNotFound, TestRunRecord, TestItemResult, run_summary
     using Dates
 
     MCPTestHelpers.with_app_state() do state
@@ -59,9 +70,9 @@ end
         @test occursin("hello", output["text"])
 
         # Coverage was never collected for this run.
-        @test_throws ErrorException read_resource(state, "testrun://run-1/coverage")
-        @test_throws ErrorException read_resource(state, "testrun://run-1/items/nope/output")
-        @test_throws ErrorException read_resource(state, "not-a-known-scheme://x")
+        @test_throws ResourceNotFound read_resource(state, "testrun://run-1/coverage")
+        @test_throws ResourceNotFound read_resource(state, "testrun://run-1/items/nope/output")
+        @test_throws ResourceNotFound read_resource(state, "not-a-known-scheme://x")
     end
 end
 
@@ -108,7 +119,7 @@ end
         MCPTestHelpers.drain_notifications(client)
 
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
         msg = MCPTestHelpers.wait_for_notification(client, "notifications/resources/updated")
         @test msg !== nothing

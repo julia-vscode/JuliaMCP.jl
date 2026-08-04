@@ -33,15 +33,34 @@ function serve_loop(state::AppState, endpoint::JSONRPC.JSONRPCEndpoint)
         @async try
             dispatch_mcp_message(state, endpoint, msg)
         catch e
-            if msg.id !== nothing
-                try
-                    JSONRPC.send_error_response(endpoint, msg, -32603, "Internal error: $(sprint(showerror, e))", nothing)
-                catch
-                end
-            end
-            @error "Handler error" method = msg.method exception = (e, catch_backtrace())
+            report_handler_error(state, endpoint, msg, e, catch_backtrace())
         end
     end
+end
+
+"""
+Report a failed request to the client. A `ResourceNotFound` is the client naming something
+that does not exist, so it gets the spec's -32002 and no stack trace; anything else is a
+genuine server fault and is logged as one.
+"""
+function report_handler_error(state::AppState, endpoint::JSONRPC.JSONRPCEndpoint, msg::JSONRPC.Request, e, backtrace)
+    resource_missing = e isa ResourceNotFound
+    if msg.id !== nothing
+        code, message, data = resource_missing ?
+            (MCP_ERROR_RESOURCE_NOT_FOUND, e.message, Dict{String,Any}("uri" => e.uri)) :
+            (MCP_ERROR_INTERNAL, "Internal error: $(sprint(showerror, e))", nothing)
+        try
+            JSONRPC.send_error_response(endpoint, msg, code, message, data)
+        catch
+        end
+    end
+
+    if resource_missing
+        mcp_debug(state, "resources", e.message)
+    else
+        @error "Handler error" method = msg.method exception = (e, backtrace)
+    end
+    return
 end
 
 function dispatch_mcp_message(state::AppState, endpoint::JSONRPC.JSONRPCEndpoint, msg::JSONRPC.Request)

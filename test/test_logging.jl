@@ -31,8 +31,8 @@ end
     # MCP Logging is deprecated as of spec 2026-07-28; diagnostics go to stderr now.
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
-        MCPTestHelpers.call_tool(client, "list_testitems")
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_list_testitems")
 
         msgs = MCPTestHelpers.drain_notifications(client)
         @test isempty(filter(m -> m.method == "notifications/message", msgs))

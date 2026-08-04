@@ -48,22 +48,31 @@ Point an MCP client at the `juliamcp` command. For clients that use the common
 ```
 
 The server starts with no workspace loaded — an agent's first call is normally
-`set_workspace_folders` to tell it which directories to analyse.
+`julia_set_workspace_folders` to tell it which directories to analyse.
 
 ## What it exposes
 
 ### Tools
 
-**Workspace** — `set_workspace_folders`, `update_file`
+Every tool is prefixed `julia_` so a model can tell at a glance that it operates on Julia
+code, even in clients that do not namespace tools by server.
 
-**Code analysis** — `get_diagnostics`, `format_file`
+**Workspace** — `julia_set_workspace_folders`
 
-**Test items** — `list_testitems`, `get_testitem_detail`, `run_testitems`, `rerun_failed`,
-`cancel_testrun`, `get_testrun_results`, `list_testruns`, `get_coverage_results`,
-`list_test_processes`, `terminate_test_process`
+**Code analysis** — `julia_get_diagnostics`, `julia_format_file`
 
-**Sessions** — `create_session`, `eval_code`, `profile_code`, `get_session_variables`,
-`list_sessions`, `interrupt_session`, `kill_session`
+**Test items** — `julia_list_testitems`, `julia_get_testitem_detail`, `julia_run_testitems`,
+`julia_rerun_failed`, `julia_cancel_testrun`, `julia_get_testrun_results`,
+`julia_list_testruns`, `julia_get_coverage_results`, `julia_list_test_processes`,
+`julia_terminate_test_process`
+
+**Sessions** — `julia_create_session`, `julia_eval_code`, `julia_profile_code`,
+`julia_get_session_variables`, `julia_list_sessions`, `julia_interrupt_session`,
+`julia_kill_session`
+
+The workspace tracks the file system itself, so nothing needs to be called after an edit.
+`julia_update_file` is routed but not advertised, for embedders that pass `watch: false` to
+`julia_set_workspace_folders` and drive refreshes themselves.
 
 ### Resources
 

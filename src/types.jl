@@ -2,6 +2,17 @@
 
 const MCP_PROTOCOL_VERSION = "2025-03-26"
 
+"""
+A resource URI the client named that does not exist. Kept distinct from an internal
+failure so the server can answer with the spec's -32002 instead of -32603.
+"""
+struct ResourceNotFound <: Exception
+    uri::String
+    message::String
+end
+
+Base.showerror(io::IO, e::ResourceNotFound) = print(io, e.message)
+
 mutable struct TestItemResult
     testitem_id::String
     label::String
@@ -95,7 +106,7 @@ end
 
 """
 Compact, bounded view of a test item — no messages, no captured output. Detail lives
-behind the `get_testitem_detail` tool so run results stay small.
+behind the `julia_get_testitem_detail` tool so run results stay small.
 """
 function testitem_status_dict(item::TestItemResult)
     return Dict{String,Any}(

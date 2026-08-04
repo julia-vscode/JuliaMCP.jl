@@ -59,27 +59,27 @@ end
     extra = joinpath(pkg, "test", "test_extra.jl")
 
     MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.call_tool(client, "set_workspace_folders",
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch_interval" => 0.05))
-        @test length(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "list_testitems"))) == 7
+        @test length(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_testitems"))) == 7
 
         write(extra, "@testitem \"from watcher\" begin\n    @test true\nend\n")
         @test MCPTestHelpers.timed_wait(20.0) do
             names = [i["name"] for i in MCPTestHelpers.result_json(
-                MCPTestHelpers.call_tool(client, "list_testitems"))]
+                MCPTestHelpers.call_tool(client, "julia_list_testitems"))]
             "from watcher" in names
         end
 
         write(extra, "@testitem \"renamed by watcher\" begin\n    @test true\nend\n")
         @test MCPTestHelpers.timed_wait(20.0) do
             names = [i["name"] for i in MCPTestHelpers.result_json(
-                MCPTestHelpers.call_tool(client, "list_testitems"))]
+                MCPTestHelpers.call_tool(client, "julia_list_testitems"))]
             "renamed by watcher" in names && !("from watcher" in names)
         end
 
         rm(extra)
         @test MCPTestHelpers.timed_wait(20.0) do
-            length(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "list_testitems"))) == 7
+            length(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_testitems"))) == 7
         end
     end
 end
@@ -90,7 +90,7 @@ end
     pkg = MCPTestHelpers.copy_testdata("BasicPkg")
 
     MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.call_tool(client, "set_workspace_folders",
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch_interval" => 0.05))
         MCPTestHelpers.subscribe(client, "workspace://testitems")
         MCPTestHelpers.drain_notifications(client)
@@ -109,7 +109,7 @@ end
     pkg = MCPTestHelpers.copy_testdata("BasicPkg")
 
     MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.call_tool(client, "set_workspace_folders",
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch_interval" => 0.05))
         MCPTestHelpers.subscribe(client, "workspace://testitems")
         MCPTestHelpers.drain_notifications(client)
@@ -119,7 +119,7 @@ end
         end
 
         @test MCPTestHelpers.timed_wait(20.0) do
-            length(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "list_testitems"))) == 12
+            length(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_testitems"))) == 12
         end
 
         # The debounce window should fold the burst into a small number of batches,
@@ -133,22 +133,24 @@ end
 @testitem "watching can be disabled" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
 
+    # `watch` and `julia_update_file` are both unadvertised; this covers the internal path
+    # embedders use when they drive refreshes themselves.
     pkg = MCPTestHelpers.copy_testdata("BasicPkg")
 
     MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.call_tool(client, "set_workspace_folders",
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false, "watch_interval" => 0.05))
 
         write(joinpath(pkg, "test", "test_ignored.jl"), "@testitem \"ignored\" begin\n    @test true\nend\n")
         sleep(1.0)
 
-        items = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "list_testitems"))
+        items = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_testitems"))
         @test length(items) == 7
 
         # The manual escape hatch still works.
-        MCPTestHelpers.call_tool(client, "update_file",
+        MCPTestHelpers.call_tool(client, "julia_update_file",
             Dict{String,Any}("path" => joinpath(pkg, "test", "test_basics.jl")))
-        @test length(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "list_testitems"))) == 7
+        @test length(MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_testitems"))) == 7
     end
 end
 

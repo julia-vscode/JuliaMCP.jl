@@ -6,9 +6,9 @@
     original = read(target, String)
 
     MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
-        result = MCPTestHelpers.call_tool(client, "format_file", Dict{String,Any}("path" => target))
+        result = MCPTestHelpers.call_tool(client, "julia_format_file", Dict{String,Any}("path" => target))
         @test !MCPTestHelpers.is_error(result)
 
         edit = MCPTestHelpers.result_json(result)
@@ -33,9 +33,9 @@ end
     original = read(target, String)
 
     MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
-        applied = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "format_file",
+        applied = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_format_file",
             Dict{String,Any}("path" => target, "apply" => true)))
         @test applied["applied"] == true
 
@@ -45,7 +45,7 @@ end
         @test occursin("messy", formatted)
         @test occursin("struct Point", formatted)
 
-        again = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "format_file",
+        again = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_format_file",
             Dict{String,Any}("path" => target)))
         @test again["already_formatted"] == true
         @test isempty(again["edits"])
@@ -60,9 +60,9 @@ end
     target = joinpath(pkg, "src", "unformatted.jl")
 
     MCPTestHelpers.with_mcp_server() do client
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
-        result = MCPTestHelpers.call_tool(client, "format_file",
+        result = MCPTestHelpers.call_tool(client, "julia_format_file",
             Dict{String,Any}("path" => target, "start_line" => 1, "stop_line" => 4))
         @test !MCPTestHelpers.is_error(result)
         edit = MCPTestHelpers.result_json(result)
@@ -70,7 +70,7 @@ end
         # A range format must not reach past the requested lines.
         @test all(e -> e["start"]["line"] >= 1, edit["edits"])
 
-        partial = MCPTestHelpers.call_tool(client, "format_file",
+        partial = MCPTestHelpers.call_tool(client, "julia_format_file",
             Dict{String,Any}("path" => target, "start_line" => 1))
         @test MCPTestHelpers.is_error(partial)
         @test occursin("must be supplied together", MCPTestHelpers.result_text(partial))
@@ -82,9 +82,9 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "LintPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
-        result = MCPTestHelpers.call_tool(client, "format_file",
+        result = MCPTestHelpers.call_tool(client, "julia_format_file",
             Dict{String,Any}("path" => joinpath(pkg, "src", "badsyntax.jl")))
         @test MCPTestHelpers.is_error(result)
         @test occursin("Formatting failed", MCPTestHelpers.result_text(result))
@@ -95,14 +95,14 @@ end
     using .MCPTestHelpers
 
     MCPTestHelpers.with_mcp_server() do client
-        result = MCPTestHelpers.call_tool(client, "format_file", Dict{String,Any}("path" => "whatever.jl"))
+        result = MCPTestHelpers.call_tool(client, "julia_format_file", Dict{String,Any}("path" => "whatever.jl"))
         @test MCPTestHelpers.is_error(result)
-        @test occursin("set_workspace_folders", MCPTestHelpers.result_text(result))
+        @test occursin("julia_set_workspace_folders", MCPTestHelpers.result_text(result))
 
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "LintPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
 
-        outside = MCPTestHelpers.call_tool(client, "format_file",
+        outside = MCPTestHelpers.call_tool(client, "julia_format_file",
             Dict{String,Any}("path" => joinpath(pkg, "src", "nope.jl")))
         @test MCPTestHelpers.is_error(outside)
         @test occursin("not part of the workspace", MCPTestHelpers.result_text(outside))

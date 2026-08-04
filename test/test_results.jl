@@ -19,7 +19,7 @@
         @test payload["total_matching_items"] == 2
         @test payload["items_truncated"] == false
         @test all(i -> !haskey(i, "messages") && !haskey(i, "output"), payload["items"])
-        @test occursin("get_testitem_detail", payload["detail_hint"])
+        @test occursin("julia_get_testitem_detail", payload["detail_hint"])
 
         with_passing = collect_run_payload(state, run, run_summary(run),
             Dict{String,Any}("include_passing" => true))
@@ -50,7 +50,7 @@ end
         run = TestRunRecord("run-1", :completed, Dict{String,Any}(), items, nothing, Dates.now(), nothing)
         state.runs["run-1"] = run
 
-        details = MCPTestHelpers.result_json(handle_tool_call(state, "get_testitem_detail",
+        details = MCPTestHelpers.result_json(handle_tool_call(state, "julia_get_testitem_detail",
             Dict{String,Any}("testrun_id" => "run-1", "testitem_ids" => ["a", "b", "missing"])))
         @test length(details) == 3
 
@@ -73,7 +73,7 @@ end
         @test msg["total_stack_frames"] == 50
 
         # Caps are overridable.
-        wide = only(MCPTestHelpers.result_json(handle_tool_call(state, "get_testitem_detail",
+        wide = only(MCPTestHelpers.result_json(handle_tool_call(state, "julia_get_testitem_detail",
             Dict{String,Any}("testrun_id" => "run-1", "testitem_ids" => ["a"],
                 "max_stack_frames" => 100, "max_output_bytes" => 100_000))))
         @test length(only(wide["messages"])["stack_trace"]) == 50
@@ -86,7 +86,7 @@ end
     using JuliaMCP: handle_tool_call
 
     MCPTestHelpers.with_app_state() do state
-        result = handle_tool_call(state, "get_testitem_detail", Dict{String,Any}("testrun_id" => "run-1"))
+        result = handle_tool_call(state, "julia_get_testitem_detail", Dict{String,Any}("testrun_id" => "run-1"))
         @test MCPTestHelpers.is_error(result)
         @test occursin("testitem_ids", MCPTestHelpers.result_text(result))
     end
@@ -97,10 +97,10 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "NoisyPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders",
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
 
-        result = MCPTestHelpers.call_tool(client, "run_testitems", Dict{String,Any}())
+        result = MCPTestHelpers.call_tool(client, "julia_run_testitems", Dict{String,Any}())
         text = MCPTestHelpers.result_text(result)
 
         report = MCPTestHelpers.result_json(result)
@@ -112,7 +112,7 @@ end
         @test sizeof(text) < 8_000
         @test !occursin("noisy 1 line", text)
 
-        detail = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "get_testitem_detail",
+        detail = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_get_testitem_detail",
             Dict{String,Any}(
                 "testrun_id" => report["summary"]["testrun_id"],
                 "testitem_ids" => [i["testitem_id"] for i in report["items"]],
@@ -127,11 +127,11 @@ end
 
     MCPTestHelpers.with_mcp_server() do client
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
-        MCPTestHelpers.call_tool(client, "set_workspace_folders",
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
-        MCPTestHelpers.call_tool(client, "run_testitems", Dict{String,Any}("name_pattern" => "^passing\$"))
+        MCPTestHelpers.call_tool(client, "julia_run_testitems", Dict{String,Any}("name_pattern" => "^passing\$"))
 
-        procs = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "list_test_processes"))
+        procs = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_test_processes"))
         @test !isempty(procs)
 
         uri = "testprocess://$(procs[1]["id"])/output"

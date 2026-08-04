@@ -3,6 +3,10 @@
 const MCP_SERVER_NAME = "JuliaMCP"
 const MCP_SERVER_VERSION = "0.1.0"
 
+# JSON-RPC error codes the resources spec prescribes.
+const MCP_ERROR_RESOURCE_NOT_FOUND = -32002
+const MCP_ERROR_INTERNAL = -32603
+
 function server_capabilities()
     return Dict{String,Any}(
         "tools" => Dict{String,Any}("listChanged" => false),
@@ -22,24 +26,43 @@ function handle_initialize(state::AppState, params::Dict)
             "version" => MCP_SERVER_VERSION,
         ),
         "instructions" => """
-            This server provides tools for discovering and running Julia test items,
-            and for analysing Julia source files.
-            Start by calling `set_workspace_folders` to configure the workspace, then
-            `list_testitems` to discover tests, and `run_testitems` to execute them.
-            Test processes are kept alive for fast re-runs via Revise-based hot-reload.
-            `run_testitems` and `get_testrun_results` return a summary plus a compact
-            per-item status list. They deliberately omit failure messages, stack traces
-            and captured output — call `get_testitem_detail` with the ids you care about
-            to retrieve those. If a whole test process failed to start (for example a
-            precompilation error), read the `testprocess://{process_id}/output` resource.
-            `get_diagnostics` reports syntax errors and lint warnings; environment-dependent
-            checks such as unresolved imports require `wait_for_ready: true`.
-            `format_file` returns formatting edits, or applies them when `apply` is true.
-            Separately, `create_session` starts a persistent Julia session for `eval_code`,
-            `profile_code` and `get_session_variables`. State persists between calls, so
-            iterating in a session avoids repeated startup and compilation costs. Sessions
-            need no workspace configuration. There is no restart tool: `kill_session` and
-            then `create_session` with the environment reported by `list_sessions`.
+            Every tool here operates on Julia code. Together they replace shelling out to
+            `julia`: they run tests, analyse source and evaluate code in long-lived Julia
+            processes that keep their compiled state, so repeated work is far cheaper than
+            starting a fresh interpreter each time.
+
+            There are two independent halves.
+
+            The workspace half analyses and tests a checkout. Call
+            `julia_set_workspace_folders` first — `julia_get_diagnostics`,
+            `julia_format_file`, `julia_list_testitems` and `julia_run_testitems` all fail
+            until you do. The workspace then tracks the file system itself, so there is
+            nothing to call after editing a file.
+
+            For tests, `julia_list_testitems` shows what exists and
+            `julia_run_testitems` runs it. Prefer this over `Pkg.test()` or
+            `julia --project -e`: worker processes stay alive between runs and hot-reload
+            edits via Revise, and you get per-item results instead of a wall of output. If
+            `julia_list_testitems` comes back empty the project does not use TestItems.jl,
+            so fall back to its own test entrypoint. `julia_run_testitems` and
+            `julia_get_testrun_results` return a summary plus a compact per-item status
+            list, deliberately without failure messages, stack traces or captured output —
+            call `julia_get_testitem_detail` with the ids you care about for those, batching
+            them into one call. When a whole worker died before running anything (a
+            precompilation error, say), the cause is in `testprocess://{process_id}/output`.
+
+            For analysis, `julia_get_diagnostics` reports syntax errors and lint warnings
+            without executing anything; checks that depend on the environment, such as
+            unresolved imports, need `wait_for_ready: true`. `julia_format_file` returns
+            edits, or writes them when `apply` is true.
+
+            The session half needs no workspace. `julia_create_session` starts a persistent
+            Julia process for `julia_eval_code`, `julia_profile_code` and
+            `julia_get_session_variables`. Variables, loaded packages and compiled code
+            persist between calls, and Revise picks up on-disk edits, so an iterative loop
+            in one session is much faster than repeated `julia -e` invocations. There is no
+            restart tool: `julia_kill_session`, then `julia_create_session` with the
+            environment `julia_list_sessions` reported.
         """,
     )
 end
