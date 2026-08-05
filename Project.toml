@@ -13,6 +13,20 @@ Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 TestItemControllers = "340407ab-12a4-4a78-8da2-3de3b3fd1448"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
+[compat]
+Dates = "1"
+JSON = "0.21"
+JSONRPC = "3"
+JuliaSessionControllers = "0.1"
+JuliaWorkspaces = "9"
+Logging = "1"
+Sockets = "1"
+Test = "1"
+TestItemControllers = "1"
+TestItemRunner = "1"
+UUIDs = "1"
+julia = "1.12"
+
 [apps.juliamcp]
 julia_flags = ["--startup-file=no"]
 
