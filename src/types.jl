@@ -18,14 +18,15 @@ mutable struct TestItemResult
     label::String
     uri::String
     status::Symbol  # :pending, :running, :passed, :failed, :errored, :skipped
-    duration::Union{Nothing,Float64}
+    duration::Union{Nothing,Float64}  # milliseconds, as reported by the test process
+
     messages::Vector{Any}  # TestMessage-like dicts
     output::Vector{String}
 end
 
 mutable struct TestRunRecord
     const id::String
-    status::Symbol  # :running, :completed, :cancelled
+    status::Symbol  # :running, :completed, :cancelled, :errored
     const profile_params::Dict{String,Any}
     const items::Dict{String,TestItemResult}  # testitem_id → result
     coverage::Union{Nothing,Vector{Any}}      # FileCoverage-like dicts
@@ -79,6 +80,31 @@ function SessionRecord(id::AbstractString, env::JSC.SessionEnvironment)
     )
 end
 
+"""
+Record a terminal status for `run`, unless one is already recorded.
+
+`execute_testrun` returns for a cancelled run just as it does for a completed one, and
+cannot tell the caller which happened — both paths simply put a value on the completion
+channel. So the tool call that started the run wakes up wanting to write `:completed` even
+when `tool_cancel_testrun` has already written `:cancelled`. First writer wins; the run only
+finishes once.
+
+Returns true if this call was the one that set the status.
+"""
+function finalize_run_status!(run::TestRunRecord, status::Symbol)
+    run.status === :running || return false
+    run.status = status
+    run.completed_at = Dates.now()
+    return true
+end
+
+"""
+Run-level counts plus timings. `duration` is elapsed wall-clock time in milliseconds, to
+match the per-item durations and the `started_at`/`completed_at` stamps. It is deliberately
+not the sum of per-item durations: items run concurrently on up to `max_workers` processes,
+so that sum overshoots elapsed time several-fold, and it silently omits every item without
+a duration (pending, running, skipped, timed out, crashed).
+"""
 function run_summary(run::TestRunRecord)
     total = length(run.items)
     passed = count(v -> v.status == :passed, values(run.items))
@@ -87,7 +113,9 @@ function run_summary(run::TestRunRecord)
     skipped = count(v -> v.status == :skipped, values(run.items))
     running = count(v -> v.status == :running, values(run.items))
     pending = count(v -> v.status == :pending, values(run.items))
-    total_duration = sum((v.duration for v in values(run.items) if v.duration !== nothing), init=0.0)
+    # An in-progress run reports elapsed-so-far rather than nothing.
+    end_time = run.completed_at === nothing ? Dates.now() : run.completed_at
+    duration = Dates.value(Dates.Millisecond(end_time - run.started_at))
     return Dict{String,Any}(
         "total" => total,
         "passed" => passed,
@@ -96,7 +124,7 @@ function run_summary(run::TestRunRecord)
         "skipped" => skipped,
         "running" => running,
         "pending" => pending,
-        "duration" => total_duration,
+        "duration" => duration,
         "status" => string(run.status),
         "testrun_id" => run.id,
         "started_at" => string(run.started_at),

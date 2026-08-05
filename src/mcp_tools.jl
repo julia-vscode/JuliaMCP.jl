@@ -160,7 +160,12 @@ function tool_definitions()
                              "items, tags, name_pattern, file_pattern or package. Returns a summary plus one " *
                              "compact status line per item — failure messages, stack traces and captured " *
                              "output are deliberately omitted; call julia_get_testitem_detail with the ids you " *
-                             "care about for those. Requires julia_set_workspace_folders.",
+                             "care about for those. All durations are milliseconds: per item, the time that " *
+                             "item took; in the summary, elapsed wall-clock time for the whole run (not the sum " *
+                             "of the per-item times, which overshoots because items run in parallel). If this " *
+                             "call is interrupted or its result is lost, the run keeps going and its results " *
+                             "stay retrievable — find the run with julia_list_testruns and fetch it with " *
+                             "julia_get_testrun_results. Requires julia_set_workspace_folders.",
             "annotations" => tool_annotations("Run Julia test items"),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
@@ -273,7 +278,9 @@ function tool_definitions()
             "name" => "julia_get_testrun_results",
             "description" => "Get the summary and per-item status lines for a Julia test run, whether it has " *
                              "completed or is still going. Same compact shape julia_run_testitems returns — use " *
-                             "julia_get_testitem_detail for failure messages, stack traces and captured output.",
+                             "julia_get_testitem_detail for failure messages, stack traces and captured output. " *
+                             "Durations are milliseconds; the summary duration is elapsed wall-clock time, and " *
+                             "for a run still in progress it is the time elapsed so far.",
             "annotations" => tool_annotations("Get Julia test run results"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
@@ -338,7 +345,8 @@ function tool_definitions()
             "name" => "julia_list_testruns",
             "description" => "List every Julia test run this server has started, with status and pass/fail " *
                              "counts. Use it to recover a testrun_id for julia_get_testrun_results, " *
-                             "julia_get_testitem_detail or julia_rerun_failed.",
+                             "julia_get_testitem_detail or julia_rerun_failed — including when a " *
+                             "julia_run_testitems call was interrupted or its result went missing.",
             "annotations" => tool_annotations("List Julia test runs"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",

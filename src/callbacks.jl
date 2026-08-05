@@ -23,7 +23,7 @@ function create_controller_callbacks(state::AppState)
                 item.status = :passed
                 item.duration = duration
             end
-            mcp_info(state, "testitem", "Passed: $(get_item_label(state, testrun_id, testitem_id)) ($(round(duration, digits=2))s)")
+            mcp_info(state, "testitem", "Passed: $(get_item_label(state, testrun_id, testitem_id)) ($(round(duration, digits=2))ms)")
             report_run_progress(state, testrun_id)
             notify_resource_updated(state, "testrun://$testrun_id/summary")
             notify_resource_updated(state, "testrun://$testrun_id/failures")
@@ -41,7 +41,7 @@ function create_controller_callbacks(state::AppState)
             end
             label = get_item_label(state, testrun_id, testitem_id)
             msg_summary = isempty(messages) ? "" : ": $(first(messages).message)"
-            dur_str = duration !== nothing ? " ($(round(duration, digits=2))s)" : ""
+            dur_str = duration !== nothing ? " ($(round(duration, digits=2))ms)" : ""
             mcp_warn(state, "testitem", "Failed: $label$dur_str$msg_summary")
             report_run_progress(state, testrun_id)
             notify_resource_updated(state, "testrun://$testrun_id/summary")
@@ -60,7 +60,7 @@ function create_controller_callbacks(state::AppState)
             end
             label = get_item_label(state, testrun_id, testitem_id)
             msg_summary = isempty(messages) ? "" : ": $(first(messages).message)"
-            dur_str = duration !== nothing ? " ($(round(duration, digits=2))s)" : ""
+            dur_str = duration !== nothing ? " ($(round(duration, digits=2))ms)" : ""
             mcp_error(state, "testitem", "Errored: $label$dur_str$msg_summary")
             report_run_progress(state, testrun_id)
             notify_resource_updated(state, "testrun://$testrun_id/summary")

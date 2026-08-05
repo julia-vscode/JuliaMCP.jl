@@ -308,8 +308,10 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_to
         )
     catch e
         lock(state.lock) do
-            run_record.status = :errored
-            run_record.completed_at = Dates.now()
+            # An explicit cancel may already have recorded a terminal status, and the error it
+            # provoked shouldn't overwrite it. The failure still reaches the caller via the
+            # error result and the log below.
+            finalize_run_status!(run_record, :errored)
         end
         mcp_error(state, "tools", "Test run $testrun_id failed: $e")
         return tool_result_error("Test run failed: $e")
@@ -321,8 +323,7 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_to
     end
 
     lock(state.lock) do
-        run_record.status = :completed
-        run_record.completed_at = Dates.now()
+        finalize_run_status!(run_record, :completed)
         if coverage_results !== nothing
             run_record.coverage = coverage_to_dicts(coverage_results)
         end
@@ -420,8 +421,7 @@ function tool_cancel_testrun(state::AppState, args::Dict{String,Any})
     lock(state.lock) do
         run = get(state.runs, testrun_id, nothing)
         if run !== nothing
-            run.status = :cancelled
-            run.completed_at = Dates.now()
+            finalize_run_status!(run, :cancelled)
             stop_heartbeat!(run)
         end
     end

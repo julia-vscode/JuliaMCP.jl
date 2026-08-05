@@ -34,6 +34,69 @@
     end
 end
 
+@testitem "summary duration is elapsed wall clock in milliseconds" begin
+    using JuliaMCP: TestRunRecord, TestItemResult, run_summary, testitem_status_dict
+    using Dates
+
+    started = DateTime(2026, 8, 5, 12, 0, 0)
+
+    # Per-item durations are milliseconds and sum to far more than the elapsed time, because
+    # items run concurrently across worker processes. The summary must report elapsed time.
+    items = Dict{String,TestItemResult}(
+        "a" => TestItemResult("a", "a", "file:///a.jl", :passed, 9_221.07, Any[], String[]),
+        "b" => TestItemResult("b", "b", "file:///a.jl", :passed, 8_100.5, Any[], String[]),
+        "c" => TestItemResult("c", "c", "file:///a.jl", :errored, nothing, Any[], String[]),
+    )
+    run = TestRunRecord("run-1", :completed, Dict{String,Any}(), items, nothing,
+        started, started + Second(5))
+
+    @test run_summary(run)["duration"] == 5_000
+
+    # Changing the per-item durations must not move the summary duration.
+    items["a"].duration = 1.0
+    items["b"].duration = 2.0
+    @test run_summary(run)["duration"] == 5_000
+
+    # Per-item durations still pass through untouched.
+    items["a"].duration = 9_221.07
+    @test testitem_status_dict(items["a"])["duration"] == 9_221.07
+    @test testitem_status_dict(items["c"])["duration"] === nothing
+
+    # A run still in progress reports elapsed-so-far rather than nothing.
+    in_progress = TestRunRecord("run-2", :running, Dict{String,Any}(), items, nothing,
+        Dates.now() - Second(2), nothing)
+    elapsed = run_summary(in_progress)["duration"]
+    @test 2_000 <= elapsed < 60_000
+end
+
+@testitem "the first terminal status for a run wins" begin
+    using JuliaMCP: TestRunRecord, TestItemResult, finalize_run_status!, run_summary
+    using Dates
+
+    make_run() = TestRunRecord("run-1", :running, Dict{String,Any}(),
+        Dict{String,TestItemResult}(), nothing, DateTime(2026, 8, 5, 12, 0, 0), nothing)
+
+    run = make_run()
+    @test finalize_run_status!(run, :completed)
+    @test run.status === :completed
+    @test run.completed_at !== nothing
+
+    # A cancel that lands first is not overwritten when the blocked run call resumes and
+    # tries to declare the run completed — the bug that made cancelled runs report
+    # "completed".
+    cancelled = make_run()
+    @test finalize_run_status!(cancelled, :cancelled)
+    stamped_at = cancelled.completed_at
+    @test !finalize_run_status!(cancelled, :completed)
+    @test cancelled.status === :cancelled
+    @test cancelled.completed_at == stamped_at
+    @test run_summary(cancelled)["status"] == "cancelled"
+
+    # Nor by an error the cancellation itself provoked.
+    @test !finalize_run_status!(cancelled, :errored)
+    @test cancelled.status === :cancelled
+end
+
 @testitem "get_testitem_detail batches, truncates and reports unknown ids" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
     using JuliaMCP: TestRunRecord, TestItemResult, handle_tool_call
