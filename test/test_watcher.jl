@@ -6,6 +6,7 @@
     @test is_watched_path("/a/b/Manifest.toml")
     @test is_watched_path("/a/b/JuliaLint.toml")
     @test is_watched_path("/a/b/JuliaFormat.toml")
+    @test is_watched_path("/a/b/JuliaTestItems.toml")
 
     @test !is_watched_path("/a/b/README.md")
     @test !is_watched_path("/a/b/data.csv")
