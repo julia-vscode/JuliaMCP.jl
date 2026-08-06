@@ -12,8 +12,7 @@ function is_watched_path(path::AbstractString)
     return JuliaWorkspaces.is_path_julia_file(path) ||
         JuliaWorkspaces.is_path_project_file(path) ||
         JuliaWorkspaces.is_path_manifest_file(path) ||
-        JuliaWorkspaces.is_path_lintconfig_file(path) ||
-        JuliaWorkspaces.is_path_formatconfig_file(path)
+        JuliaWorkspaces.is_path_toolconfig_file(path)
 end
 
 function scan_folder!(snapshot::Dict{String,Float64}, dir::AbstractString)

@@ -85,7 +85,7 @@ function tool_definitions()
         Dict{String,Any}(
             "name" => "julia_format_file",
             "description" => "Format Julia source code with the style configured by the nearest " *
-                             "juliaformat.toml (JuliaFormatter by default, or Runic when style=\"runic\"). " *
+                             "JuliaFormat.toml (JuliaFormatter by default, or Runic when style=\"runic\"). " *
                              "Returns the text edits without touching disk; set apply=true to write them and " *
                              "refresh the workspace. Requires julia_set_workspace_folders, and only works on " *
                              "files inside the workspace.",
