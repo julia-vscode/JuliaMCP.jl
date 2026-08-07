@@ -194,7 +194,20 @@ function tool_format_file(state::AppState, args::Dict{String,Any})
         return tool_result_error("Formatting failed: $(sprint(showerror, err))")
     end
 
+    # A file the JuliaFormat.toml configuration excludes is not an error; it
+    # is simply not formatted.
+    if edit === nothing
+        return tool_result_json(Dict{String,Any}(
+            "uri" => string(uri),
+            "edits" => [],
+            "excluded" => true,
+            "already_formatted" => false,
+            "applied" => false,
+        ))
+    end
+
     result = file_edit_to_dict(edit)
+    result["excluded"] = false
     result["already_formatted"] = isempty(edit.edits)
 
     if something(get(args, "apply", nothing), false) && !isempty(edit.edits)

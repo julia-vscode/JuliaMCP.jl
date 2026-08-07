@@ -77,6 +77,38 @@ end
     end
 end
 
+@testitem "format_file reports an excluded file as excluded, not as an error" setup=[MCPTestHelpers] begin
+    using .MCPTestHelpers
+
+    pkg = MCPTestHelpers.copy_testdata("LintPkg")
+    write(joinpath(pkg, "JuliaFormat.toml"), "exclude = [\"src/unformatted.jl\"]\n")
+    target = joinpath(pkg, "src", "unformatted.jl")
+    original = read(target, String)
+
+    MCPTestHelpers.with_mcp_server() do client
+        MCPTestHelpers.call_tool(client, "julia_set_workspace_folders", Dict{String,Any}("folders" => [pkg]))
+
+        result = MCPTestHelpers.call_tool(client, "julia_format_file", Dict{String,Any}("path" => target))
+        @test !MCPTestHelpers.is_error(result)
+        edit = MCPTestHelpers.result_json(result)
+        @test edit["excluded"] == true
+        @test isempty(edit["edits"])
+        @test edit["applied"] == false
+
+        # apply=true on an excluded file must leave the file alone.
+        applied = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_format_file",
+            Dict{String,Any}("path" => target, "apply" => true)))
+        @test applied["excluded"] == true
+        @test applied["applied"] == false
+        @test read(target, String) == original
+
+        # A non-excluded sibling still reports excluded=false and formats.
+        other = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_format_file",
+            Dict{String,Any}("path" => joinpath(pkg, "src", "LintPkg.jl"))))
+        @test other["excluded"] == false
+    end
+end
+
 @testitem "format_file reports syntax errors" setup=[MCPTestHelpers] begin
     using .MCPTestHelpers
 
