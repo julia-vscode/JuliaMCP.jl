@@ -242,3 +242,35 @@ end
         @test occursin("No test items matched", MCPTestHelpers.result_text(result))
     end
 end
+
+@testitem "surplus_test_processes holds the ceiling on idle workers" begin
+    using JuliaMCP: TIR, MAX_TEST_PROCESSES, surplus_test_processes
+    using Dates
+
+    # `created_at` ascending, so index order is oldest first.
+    proc(i, pkg, status) = TIR.ProcessInfo(
+        "p$i", "Pkg$pkg", "file:///pkg$pkg", nothing, nothing,
+        status, DateTime(2026, 1, 1) + Second(i), "env$pkg",
+    )
+
+    # Within the ceiling nothing is given up, however stale.
+    within = [proc(i, i, "Idle") for i in 1:MAX_TEST_PROCESSES]
+    @test isempty(surplus_test_processes(within, Set{String}()))
+
+    # One over the ceiling: the process outside `keep_packages` goes, not older wanted ones.
+    over = [proc(i, i, "Idle") for i in 1:(MAX_TEST_PROCESSES + 1)]
+    keep = Set("file:///pkg$i" for i in 2:(MAX_TEST_PROCESSES + 1))
+    @test [p.id for p in surplus_test_processes(over, keep)] == ["p1"]
+
+    # With every package wanted, the oldest goes.
+    @test [p.id for p in surplus_test_processes(over, Set("file:///pkg$i" for i in 1:9))] == ["p1"]
+
+    # A busy process is never selected, and counts against the ceiling where it stands.
+    busy = [proc(1, 1, "Running"); [proc(i, i, "Idle") for i in 2:(MAX_TEST_PROCESSES + 1)]]
+    doomed = surplus_test_processes(busy, Set{String}())
+    @test [p.id for p in doomed] == ["p2"]
+
+    # Nothing to reclaim when every surplus process is busy.
+    all_busy = [proc(i, i, "Running") for i in 1:(MAX_TEST_PROCESSES + 3)]
+    @test isempty(surplus_test_processes(all_busy, Set{String}()))
+end
