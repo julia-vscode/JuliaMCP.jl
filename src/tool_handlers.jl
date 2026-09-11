@@ -1,6 +1,11 @@
 # tool_handlers.jl — MCP tool call implementations
 
 const MAX_ITEMS_DEFAULT = 200
+# How long `julia_run_testitems` blocks before handing a still-running run back to the
+# caller. Ten minutes covers a cold worker start plus precompilation plus a normal suite, so
+# the common case is unchanged, while a deadlocked item costs the caller at most ten minutes
+# instead of forever. The run itself is never touched by this bound.
+const MAX_WAIT_SECONDS_DEFAULT = 600
 const MAX_OUTPUT_BYTES_DEFAULT = 8_000
 const MAX_MESSAGES_DEFAULT = 20
 const MAX_STACK_FRAMES_DEFAULT = 20
@@ -248,6 +253,13 @@ end
 function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_token=nothing)
     state.workspace === nothing && return tool_result_error("Workspace not configured. Call julia_set_workspace_folders first.")
 
+    # Validated before anything is started, so a bad value costs nothing. `Bool <: Real`,
+    # hence the explicit exclusion; JSON `true` is not a number of seconds.
+    max_wait = something(get(args, "max_wait_seconds", nothing), MAX_WAIT_SECONDS_DEFAULT)
+    (max_wait isa Real && !(max_wait isa Bool) && isfinite(max_wait) && max_wait >= 0) ||
+        return tool_result_error("max_wait_seconds must be a non-negative number of seconds.")
+    max_wait = Float64(max_wait)
+
     init_controller!(state)
 
     filter = build_filter(args)
@@ -289,26 +301,92 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_to
 
     mcp_info(state, "tools", "Starting test run $testrun_id with $(length(items)) item(s)")
 
-    result = try
-        run = TIR.run_async!(state.session, d;
+    run = try
+        r = TIR.run_async!(state.session, d;
             profiles = [run_profile(args)],
             timeout = timeout,
             fail_on_definition_error = false,
             id = testrun_id,
             run_options(args)...)
         lock(state.lock) do
-            state.active_runs[testrun_id] = run
+            state.active_runs[testrun_id] = r
         end
+        r
+    catch e
+        stop_heartbeat!(run_record)
+        lock(state.lock) do
+            finalize_run_status!(run_record, :errored)
+        end
+        mcp_error(state, "tools", "Test run $testrun_id failed to start: $e")
+        return tool_result_error("Test run failed: $e")
+    end
+
+    # `run.done` is a `Threads.Event` with no timed wait, and a helper task parked in
+    # `wait(run.done)` would be leaked by exactly the run this bound exists for — one that
+    # never finishes. Polling `istaskdone` leaves nothing behind on either exit path.
+    if timedwait(() -> istaskdone(run), max_wait; pollint=0.1) === :ok
+        summary = finish_run!(state, run_record, run)
+        summary === nothing && return tool_result_error("Test run failed: $(run.error)")
+        return tool_result_json(collect_run_payload(state, run_record, summary, args))
+    end
+
+    # The wait ran out first. The run keeps going: the record stays `:running`, the run stays
+    # in `active_runs` so `julia_cancel_testrun` can reach it, and a detached task records
+    # the outcome when the run eventually ends. Progress belonged to the request being
+    # answered now, so it stops here — clearing the token is what actually disarms both the
+    # heartbeat tick already sleeping and the per-event reports; MCP forbids progress after
+    # the response, and a final `progress == total` would falsely signal completion.
+    stop_heartbeat!(run_record)
+    lock(state.lock) do
+        run_record.progress_token = nothing
+    end
+    mcp_warn(state, "tools", "Test run $testrun_id still running after $(max_wait)s; returning early, the run continues")
+
+    # Built before the finalizer is detached, so the response is consistent with itself: the
+    # only thing that can have moved the record off `:running` by now is a concurrent cancel,
+    # which is exactly a state worth reporting. A run that finishes between the wait expiring
+    # and this point is reported as running; the next poll says completed.
+    summary = lock(state.lock) do
+        run_summary(run_record)
+    end
+    payload = collect_run_payload(state, run_record, summary, args)
+    payload["waited_seconds"] = max_wait
+    payload["message"] = running_message(summary, max_wait)
+
+    @async try
+        finish_run!(state, run_record, run)
+    catch e
+        @error "Finalizing test run $testrun_id after early return failed" exception = (e, catch_backtrace())
+    end
+
+    return tool_result_json(payload)
+end
+
+"""
+Wait for `run` to finish and record its outcome on `run_record`: terminal status, coverage,
+the final progress notification, resource updates and the completion log line. Returns the
+run summary, or `nothing` when the run errored (`run.error` holds the exception and the
+record is already marked `:errored`). A cancel that landed first wins, as before.
+
+Called synchronously by `tool_run_testitems` when the run finishes within `max_wait_seconds`,
+and otherwise from a detached task after the tool call has already returned — so nothing in
+here may assume a request is still open, and the run's status is read from the `TestRun`
+itself rather than looked up through `state.session`, which shutdown nulls.
+"""
+function finish_run!(state::AppState, run_record::TestRunRecord, run::TIR.TestRun)
+    testrun_id = run_record.id
+
+    result = try
         fetch(run)
     catch e
         lock(state.lock) do
             # An explicit cancel may already have recorded a terminal status, and the error it
             # provoked shouldn't overwrite it. The failure still reaches the caller via the
-            # error result and the log below.
+            # error result when a request is waiting, and via the log either way.
             finalize_run_status!(run_record, :errored)
         end
         mcp_error(state, "tools", "Test run $testrun_id failed: $e")
-        return tool_result_error("Test run failed: $e")
+        return nothing
     finally
         stop_heartbeat!(run_record)
         lock(state.lock) do
@@ -319,7 +397,7 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_to
     lock(state.lock) do
         # A cancelled run returns normally with its partial result; the run's own status
         # tells the two apart.
-        finalize_run_status!(run_record, iscancelled_result(state, testrun_id) ? :cancelled : :completed)
+        finalize_run_status!(run_record, run.status === :cancelled ? :cancelled : :completed)
         if result.coverage !== nothing
             run_record.coverage = coverage_to_dicts(result.coverage)
         end
@@ -337,7 +415,18 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_to
 
     mcp_info(state, "tools", "Test run $testrun_id completed: $(summary["passed"]) passed, $(summary["failed"]) failed, $(summary["errored"]) errored")
 
-    return tool_result_json(collect_run_payload(state, run_record, summary, args))
+    return summary
+end
+
+"The `message` of an early-returned run: what happened, and what to do next."
+function running_message(summary, max_wait::Float64)
+    done = summary["passed"] + summary["failed"] + summary["errored"] + summary["skipped"]
+    return "Still running after $(round(Int, max_wait)) s: $done of $(summary["total"]) item(s) finished, " *
+           "$(summary["running"]) running, $(summary["pending"]) pending. The run has NOT been stopped and " *
+           "continues in the background. Poll julia_get_testrun_results with testrun_id=\"$(summary["testrun_id"])\" " *
+           "until status is no longer \"running\" (each poll returns immediately; leave time between polls), " *
+           "or stop it with julia_cancel_testrun. If an item is hanging rather than slow, cancel and rerun " *
+           "with a per-item timeout so it is errored and the rest of the suite completes."
 end
 
 """
@@ -350,16 +439,21 @@ function collect_run_payload(state::AppState, run::TestRunRecord, summary, args:
     include_passing = something(get(args, "include_passing", nothing), false)
     max_items = something(get(args, "max_items", nothing), MAX_ITEMS_DEFAULT)
 
-    selected, items_out = lock(state.lock) do
+    selected, items_out, status = lock(state.lock) do
         selected = [
             item for item in values(run.items)
             if include_passing || item.status !== :passed
         ]
         sort!(selected, by = item -> (status_rank(item), item.label))
-        (length(selected), testitem_status_dict.(first(selected, max_items)))
+        (length(selected), testitem_status_dict.(first(selected, max_items)), run.status)
     end
 
+    # `testrun_id` and `status` are also inside `summary`, but they are the two things a
+    # caller reaches for first — and the running/finished distinction has to be trivially
+    # visible in both this tool's and `julia_get_testrun_results`'s output.
     payload = Dict{String,Any}(
+        "testrun_id" => run.id,
+        "status" => string(status),
         "summary" => summary,
         "items" => items_out,
         "total_matching_items" => selected,
@@ -370,6 +464,11 @@ function collect_run_payload(state::AppState, run::TestRunRecord, summary, args:
     )
     if !include_passing
         payload["note"] = "Passing items are omitted; pass include_passing=true to list them."
+    end
+    if status === :running
+        payload["in_progress_hint"] = "This run has not finished. Poll julia_get_testrun_results with " *
+                                      "testrun_id=\"$(run.id)\" until status is no longer \"running\" (each call " *
+                                      "returns at once), or stop the run with julia_cancel_testrun."
     end
     return payload
 end
@@ -393,7 +492,7 @@ function tool_rerun_failed(state::AppState, args::Dict{String,Any}; progress_tok
     new_args = copy(args)
     new_args["items"] = failed_ids
     # Preserve original profile params
-    for key in ("julia_cmd", "julia_args", "max_workers", "timeout", "mode")
+    for key in ("julia_cmd", "julia_args", "max_workers", "timeout", "mode", "max_wait_seconds")
         if haskey(prev_run.profile_params, key) && !haskey(new_args, key)
             new_args[key] = prev_run.profile_params[key]
         end
@@ -423,7 +522,7 @@ function tool_cancel_testrun(state::AppState, args::Dict{String,Any})
     end
 
     mcp_info(state, "tools", "Cancelled test run $testrun_id")
-    return tool_result_text("Test run $testrun_id cancelled.")
+    return tool_result_text("Test run $testrun_id cancelled. Results collected so far stay available via julia_get_testrun_results.")
 end
 
 # --- get_testrun_results ---
@@ -583,13 +682,6 @@ end
 
 "The test processes of the session, or none when there is no session yet."
 list_test_processes(state::AppState) = state.session === nothing ? TIR.ProcessInfo[] : TIR.list_processes(state.session)
-
-"Whether the TestItemRuns run behind `testrun_id` finished by cancellation."
-function iscancelled_result(state::AppState, testrun_id::String)
-    state.session === nothing && return false
-    run = TIR.get_run(state.session, testrun_id)
-    return run !== nothing && run.status === :cancelled
-end
 
 function build_filter(args::Dict{String,Any})
     filter = Dict{Symbol,Any}()

@@ -44,7 +44,22 @@ function handle_initialize(state::AppState, params::Dict)
             `julia --project -e`: worker processes stay alive between runs and hot-reload
             edits via Revise, and you get per-item results instead of a wall of output. If
             `julia_list_testitems` comes back empty the project does not use TestItems.jl,
-            so fall back to its own test entrypoint. `julia_run_testitems` and
+            so fall back to its own test entrypoint.
+
+            `julia_run_testitems` waits for the run, but only up to `max_wait_seconds`
+            (default $(MAX_WAIT_SECONDS_DEFAULT)). If the run is still going when that
+            expires — a slow suite, a cold precompile, or a test that hangs — the call
+            returns `status: "running"` with the results so far and a `testrun_id`, and the
+            run continues untouched. From there, poll `julia_get_testrun_results` with that
+            id until `status` is no longer `"running"` (each poll returns at once, so leave
+            time between polls), or stop the run with `julia_cancel_testrun`. Do not start
+            a second run of the same items while one is still going. A hanging test item
+            never finishes by itself: if you suspect one, cancel the run and rerun with a
+            per-item `timeout` so that item is errored and the rest of the suite completes.
+            `timeout` limits each item; `max_wait_seconds` limits only the call — they are
+            independent.
+
+            `julia_run_testitems` and
             `julia_get_testrun_results` return a summary plus a compact per-item status
             list, deliberately without failure messages, stack traces or captured output —
             call `julia_get_testitem_detail` with the ids you care about for those, batching

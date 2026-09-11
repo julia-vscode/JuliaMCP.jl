@@ -152,7 +152,8 @@ function tool_definitions()
         ),
         Dict{String,Any}(
             "name" => "julia_run_testitems",
-            "description" => "Run Julia test items and block until they finish. This is the right way to run " *
+            "description" => "Run Julia test items and wait up to max_wait_seconds (default " *
+                             "$(MAX_WAIT_SECONDS_DEFAULT)) for them to finish. This is the right way to run " *
                              "tests for a workspace that uses TestItems.jl — use it instead of shelling out to " *
                              "Pkg.test() or `julia --project -e`, which recompile everything and cannot report " *
                              "per-test results. Test items run in Julia worker processes that stay alive " *
@@ -163,7 +164,15 @@ function tool_definitions()
                              "output are deliberately omitted; call julia_get_testitem_detail with the ids you " *
                              "care about for those. All durations are milliseconds: per item, the time that " *
                              "item took; in the summary, elapsed wall-clock time for the whole run (not the sum " *
-                             "of the per-item times, which overshoots because items run in parallel). If this " *
+                             "of the per-item times, which overshoots because items run in parallel). Two " *
+                             "independent time limits: `timeout` bounds each test item and errors the ones that " *
+                             "exceed it; `max_wait_seconds` bounds this call only. When the wait runs out the " *
+                             "run is NOT stopped — the response has status \"running\", the results so far and " *
+                             "the testrun_id; poll julia_get_testrun_results until status is no longer " *
+                             "\"running\", or stop the run with julia_cancel_testrun. A hanging test item " *
+                             "(deadlock, blocking take!, infinite loop) therefore cannot hang this call, but it " *
+                             "never finishes on its own either: if you suspect one, cancel and rerun with a " *
+                             "`timeout` so that item is errored and the rest of the suite completes. If this " *
                              "call is interrupted or its result is lost, the run keeps going and its results " *
                              "stay retrievable — find the run with julia_list_testruns and fetch it with " *
                              "julia_get_testrun_results. Requires julia_set_workspace_folders.",
@@ -217,7 +226,23 @@ function tool_definitions()
                     ),
                     "timeout" => Dict{String,Any}(
                         "type" => "number",
-                        "description" => "Per-test-item timeout in seconds.",
+                        "description" => "Per-test-item time limit in seconds. An item still running when it expires is " *
+                                         "reported as errored (its message reads \"timed out after N seconds\"), its worker " *
+                                         "process is killed and replaced, and the rest of the run continues. No limit by " *
+                                         "default, so a hanging item runs until the run is cancelled — set this when a suite " *
+                                         "might hang or when every item must finish on its own. Unrelated to " *
+                                         "max_wait_seconds, which bounds this call rather than the items.",
+                    ),
+                    "max_wait_seconds" => Dict{String,Any}(
+                        "type" => "number",
+                        "description" => "Longest this call blocks waiting for the run, in seconds (default " *
+                                         "$(MAX_WAIT_SECONDS_DEFAULT)). It returns as soon as the run finishes, so a large " *
+                                         "value costs nothing for a quick suite, and it never affects the run itself. If the " *
+                                         "run is still going when the wait expires, the response has status \"running\", the " *
+                                         "summary and per-item statuses so far and the testrun_id, and the run continues in " *
+                                         "the background: poll julia_get_testrun_results (each poll returns at once) or stop " *
+                                         "it with julia_cancel_testrun. Pass a smaller value if your client's tool-call limit " *
+                                         "is shorter; 0 starts the run and returns immediately.",
                     ),
                     "coverage_root_uris" => Dict{String,Any}(
                         "type" => "array",
@@ -240,7 +265,8 @@ function tool_definitions()
             "description" => "Re-run only the failed and errored Julia test items from an earlier run, reusing " *
                              "that run's settings. Returns a new test run id; the original run is left intact. " *
                              "The usual loop is julia_run_testitems, fix the code, then this — the worker " *
-                             "processes pick up the fix via Revise.",
+                             "processes pick up the fix via Revise. Waits up to max_wait_seconds like " *
+                             "julia_run_testitems and returns early with status \"running\" the same way.",
             "annotations" => tool_annotations("Re-run failed Julia test items"),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
@@ -253,16 +279,18 @@ function tool_definitions()
                     "julia_args" => Dict{String,Any}("type" => "array", "items" => Dict{String,Any}("type" => "string"), "description" => "Julia args override."),
                     "max_workers" => Dict{String,Any}("type" => "integer", "description" => "Max workers override."),
                     "timeout" => Dict{String,Any}("type" => "number", "description" => "Per-item timeout override."),
+                    "max_wait_seconds" => Dict{String,Any}("type" => "number", "description" => "Override for how long this call waits before returning the run as still running (default $(MAX_WAIT_SECONDS_DEFAULT))."),
                 ),
                 "required" => ["testrun_id"],
             ),
         ),
         Dict{String,Any}(
             "name" => "julia_cancel_testrun",
-            "description" => "Cancel an in-progress Julia test run. Items that have not finished are abandoned; " *
-                             "results already collected stay readable via julia_get_testrun_results. Only " *
-                             "meaningful while a run is still going, so it has to come from somewhere other " *
-                             "than the blocking julia_run_testitems call.",
+            "description" => "Stop an in-progress Julia test run — typically one julia_run_testitems handed back " *
+                             "with status \"running\" because it outlasted max_wait_seconds, or one that turned " *
+                             "out to be hanging. Items that have not finished are abandoned and their worker " *
+                             "processes are killed; results already collected stay readable via " *
+                             "julia_get_testrun_results. Errors if the run has already finished.",
             "annotations" => tool_annotations("Cancel a Julia test run"; destructive=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
@@ -278,8 +306,11 @@ function tool_definitions()
         Dict{String,Any}(
             "name" => "julia_get_testrun_results",
             "description" => "Get the summary and per-item status lines for a Julia test run, whether it has " *
-                             "completed or is still going. Same compact shape julia_run_testitems returns — use " *
-                             "julia_get_testitem_detail for failure messages, stack traces and captured output. " *
+                             "completed or is still going — this is the tool to poll after julia_run_testitems " *
+                             "returned with status \"running\". It returns immediately with the current state; " *
+                             "the run is done once status is no longer \"running\". Same compact shape " *
+                             "julia_run_testitems returns — use julia_get_testitem_detail for failure messages, " *
+                             "stack traces and captured output. " *
                              "Durations are milliseconds; the summary duration is elapsed wall-clock time, and " *
                              "for a run still in progress it is the time elapsed so far.",
             "annotations" => tool_annotations("Get Julia test run results"; read_only=true, idempotent=true),
@@ -347,7 +378,8 @@ function tool_definitions()
             "description" => "List every Julia test run this server has started, with status and pass/fail " *
                              "counts. Use it to recover a testrun_id for julia_get_testrun_results, " *
                              "julia_get_testitem_detail or julia_rerun_failed — including when a " *
-                             "julia_run_testitems call was interrupted or its result went missing.",
+                             "julia_run_testitems call was interrupted or its result went missing. Runs that " *
+                             "outlasted max_wait_seconds show as \"running\" until they finish or are cancelled.",
             "annotations" => tool_annotations("List Julia test runs"; read_only=true, idempotent=true),
             "inputSchema" => Dict{String,Any}(
                 "type" => "object",
