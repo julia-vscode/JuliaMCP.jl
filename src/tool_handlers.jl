@@ -5,6 +5,11 @@ const MAX_OUTPUT_BYTES_DEFAULT = 8_000
 const MAX_MESSAGES_DEFAULT = 20
 const MAX_STACK_FRAMES_DEFAULT = 20
 
+# How many test processes the session keeps between runs, each costing several hundred
+# megabytes. `max_workers` cannot serve as this bound: it applies per environment, and
+# every environment gets at least one process.
+const MAX_TEST_PROCESSES = 8
+
 """
 Check `arguments` against the `required` list in the tool's declared input
 schema. Returns an error result for the client, or `nothing` when valid.
@@ -289,6 +294,18 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_to
 
     mcp_info(state, "tools", "Starting test run $testrun_id with $(length(items)) item(s)")
 
+    # Also before the run, not just after: pools for packages it does not touch would
+    # otherwise add to its peak.
+    keep_packages = Set(item.package_uri for item in items)
+    reap_test_processes!(state, keep_packages)
+
+    # Every environment gets at least one process, whatever `max_workers` says.
+    if length(keep_packages) > MAX_TEST_PROCESSES
+        mcp_warn(state, "tools", "This run spans $(length(keep_packages)) packages and will " *
+                                 "start at least that many test processes. Narrow it with the " *
+                                 "package, items or file_pattern filter to hold memory down.")
+    end
+
     result = try
         run = TIR.run_async!(state.session, d;
             profiles = [run_profile(args)],
@@ -314,6 +331,9 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_to
         lock(state.lock) do
             delete!(state.active_runs, testrun_id)
         end
+        # In `finally`, since a run that died part-way is the one most likely to strand
+        # processes.
+        reap_test_processes!(state, keep_packages)
     end
 
     lock(state.lock) do
@@ -580,6 +600,39 @@ function tool_get_coverage_results(state::AppState, args::Dict{String,Any})
 end
 
 # --- Helpers ---
+
+"""
+    surplus_test_processes(procs, keep_packages) -> Vector{TIR.ProcessInfo}
+
+The `"Idle"` processes to reclaim so that at most [`MAX_TEST_PROCESSES`](@ref) remain,
+those outside `keep_packages` first and the oldest after. A busy process is never
+selected, but still counts against the ceiling.
+"""
+function surplus_test_processes(procs, keep_packages)
+    idle = [p for p in procs if p.status == "Idle"]
+    surplus = min(length(idle), length(procs) - MAX_TEST_PROCESSES)
+    surplus > 0 || return empty(idle)
+
+    sort!(idle, by = p -> (p.package_uri in keep_packages, p.created_at))
+    return first(idle, surplus)
+end
+
+"""
+    reap_test_processes!(state, keep_packages) -> Int
+
+Terminate the [`surplus_test_processes`](@ref) and return how many went.
+"""
+function reap_test_processes!(state::AppState, keep_packages)
+    session = state.session
+    isnothing(session) && return 0
+
+    doomed = surplus_test_processes(list_test_processes(state), keep_packages)
+    for p in doomed
+        mcp_notice(state, "controller", "Reaping idle test process $(p.id) ($(p.package_name))")
+        TIR.terminate_process!(session, p.id)
+    end
+    return length(doomed)
+end
 
 "The test processes of the session, or none when there is no session yet."
 list_test_processes(state::AppState) = state.session === nothing ? TIR.ProcessInfo[] : TIR.list_processes(state.session)
