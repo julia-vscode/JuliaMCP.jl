@@ -66,6 +66,11 @@ code, even in clients that do not namespace tools by server.
 `julia_list_testruns`, `julia_get_coverage_results`, `julia_list_test_processes`,
 `julia_terminate_test_process`
 
+`julia_run_testitems` waits at most `max_wait_seconds` (default 600) and otherwise hands the
+run back with status `"running"`; `julia_get_testrun_results` polls it and
+`julia_cancel_testrun` stops it. The per-item `timeout` is independent and bounds each test
+item rather than the call.
+
 **Sessions** — `julia_create_session`, `julia_eval_code`, `julia_profile_code`,
 `julia_get_session_variables`, `julia_list_sessions`, `julia_interrupt_session`,
 `julia_kill_session`
