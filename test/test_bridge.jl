@@ -106,6 +106,7 @@ end
     @test opts.julia_num_threads == "2"
     @test opts.julia_args == ["--check-bounds=yes"]
     @test JuliaMCP.run_options(Dict{String,Any}()).julia_num_threads === nothing
+    @test JuliaMCP.run_options(Dict{String,Any}()).max_workers == JuliaMCP.TIR.default_max_workers()
 end
 
 @testitem "test processes drop the app shim's Julia env vars" begin
