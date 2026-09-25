@@ -183,6 +183,22 @@ result_json(result) = JSON.parse(result_text(result))
 
 resource_json(result) = JSON.parse(result["contents"][1]["text"])
 
+# On CI these end-to-end tests run while other test processes compete for the same few
+# CPUs, and the first run in a fresh depot has to precompile the test environment; that has
+# taken more than ten minutes, well past `julia_run_testitems`' default `max_wait_seconds`.
+# A test that needs a *finished* run asks for a far longer wait (the call still returns as
+# soon as the run ends), and a `timed_wait` on something a fresh test process has to do
+# first gets a correspondingly generous ceiling.
+const RUN_TO_COMPLETION_SECONDS = 3600
+const FIRST_RUN_TIMEOUT = 1800.0
+
+"""
+`args` plus a `max_wait_seconds` long enough that `julia_run_testitems` returns the finished
+run rather than handing it back still running.
+"""
+to_completion(args::Dict=Dict{String,Any}()) =
+    merge(Dict{String,Any}("max_wait_seconds" => RUN_TO_COMPLETION_SECONDS), args)
+
 """
 Poll `f` until it returns `true` or `timeout` seconds elapse. Returns whether it
 succeeded.

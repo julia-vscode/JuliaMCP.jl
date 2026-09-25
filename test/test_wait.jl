@@ -39,7 +39,7 @@
 
         # The run continued after the response: the worker eventually starts the item, and
         # the poll tool reports it in the same shape, still running.
-        @test MCPTestHelpers.timed_wait(120.0; interval=0.5) do
+        @test MCPTestHelpers.timed_wait(MCPTestHelpers.FIRST_RUN_TIMEOUT; interval=0.5) do
             poll(id)["summary"]["running"] == 1
         end
         live = poll(id)
@@ -78,7 +78,7 @@
         @test report["status"] == "running"
         @test report["waited_seconds"] == 0
         quick_id = report["testrun_id"]
-        @test MCPTestHelpers.timed_wait(120.0; interval=0.5) do
+        @test MCPTestHelpers.timed_wait(MCPTestHelpers.FIRST_RUN_TIMEOUT; interval=0.5) do
             poll(quick_id)["status"] != "running"
         end
         done = poll(quick_id)
@@ -98,7 +98,7 @@ end
             Dict{String,Any}("folders" => [pkg], "watch" => false))
 
         result = MCPTestHelpers.call_tool(client, "julia_run_testitems",
-            Dict{String,Any}("max_wait_seconds" => 300))
+            Dict{String,Any}("max_wait_seconds" => MCPTestHelpers.RUN_TO_COMPLETION_SECONDS))
         @test !MCPTestHelpers.is_error(result)
 
         report = MCPTestHelpers.result_json(result)
@@ -128,7 +128,7 @@ end
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         state.workspace = JuliaWorkspaces.workspace_from_folders([pkg])
 
-        first_result = JuliaMCP.tool_run_testitems(state, Dict{String,Any}("max_wait_seconds" => 123))
+        first_result = JuliaMCP.tool_run_testitems(state, MCPTestHelpers.to_completion())
         @test !MCPTestHelpers.is_error(first_result)
         first_id = MCPTestHelpers.result_json(first_result)["testrun_id"]
 
@@ -140,7 +140,7 @@ end
         rerun = lock(state.lock) do
             state.runs[rerun_id]
         end
-        @test rerun.profile_params["max_wait_seconds"] == 123
+        @test rerun.profile_params["max_wait_seconds"] == MCPTestHelpers.RUN_TO_COMPLETION_SECONDS
     end
 end
 
