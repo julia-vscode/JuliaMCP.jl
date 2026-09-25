@@ -6,7 +6,7 @@
         MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
 
-        result = MCPTestHelpers.call_tool(client, "julia_run_testitems", Dict{String,Any}())
+        result = MCPTestHelpers.call_tool(client, "julia_run_testitems", MCPTestHelpers.to_completion())
         @test !MCPTestHelpers.is_error(result)
 
         report = MCPTestHelpers.result_json(result)
@@ -44,7 +44,7 @@ end
         MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
         MCPTestHelpers.call_tool(client, "julia_run_testitems",
-            Dict{String,Any}("name_pattern" => "^passing\$"))
+            MCPTestHelpers.to_completion(Dict{String,Any}("name_pattern" => "^passing\$")))
 
         runs = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_testruns"))
         @test length(runs) == 1
@@ -83,7 +83,7 @@ end
                 Dict{String,Any}("folders" => [pkg], "watch" => false))
 
             report = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_run_testitems",
-                Dict{String,Any}("name_pattern" => "^passing\$")))
+                MCPTestHelpers.to_completion(Dict{String,Any}("name_pattern" => "^passing\$"))))
 
             @test report["summary"]["passed"] == 1
             @test report["summary"]["errored"] == 0
@@ -98,7 +98,7 @@ end
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
-        MCPTestHelpers.call_tool(client, "julia_run_testitems", Dict{String,Any}())
+        MCPTestHelpers.call_tool(client, "julia_run_testitems", MCPTestHelpers.to_completion())
 
         run_id = MCPTestHelpers.result_json(
             MCPTestHelpers.call_tool(client, "julia_list_testruns"))[1]["testrun_id"]
@@ -121,7 +121,7 @@ end
         MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
         MCPTestHelpers.call_tool(client, "julia_run_testitems",
-            Dict{String,Any}("name_pattern" => "^passing\$"))
+            MCPTestHelpers.to_completion(Dict{String,Any}("name_pattern" => "^passing\$")))
 
         procs = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_test_processes"))
         @test !isempty(procs)

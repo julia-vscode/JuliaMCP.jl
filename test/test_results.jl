@@ -163,7 +163,7 @@ end
         MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
 
-        result = MCPTestHelpers.call_tool(client, "julia_run_testitems", Dict{String,Any}())
+        result = MCPTestHelpers.call_tool(client, "julia_run_testitems", MCPTestHelpers.to_completion())
         text = MCPTestHelpers.result_text(result)
 
         report = MCPTestHelpers.result_json(result)
@@ -192,7 +192,8 @@ end
         pkg = joinpath(MCPTestHelpers.TESTDATA_DIR, "BasicPkg")
         MCPTestHelpers.call_tool(client, "julia_set_workspace_folders",
             Dict{String,Any}("folders" => [pkg], "watch" => false))
-        MCPTestHelpers.call_tool(client, "julia_run_testitems", Dict{String,Any}("name_pattern" => "^passing\$"))
+        MCPTestHelpers.call_tool(client, "julia_run_testitems",
+            MCPTestHelpers.to_completion(Dict{String,Any}("name_pattern" => "^passing\$")))
 
         procs = MCPTestHelpers.result_json(MCPTestHelpers.call_tool(client, "julia_list_test_processes"))
         @test !isempty(procs)
