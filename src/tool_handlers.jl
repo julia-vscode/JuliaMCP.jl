@@ -265,6 +265,14 @@ function tool_run_testitems(state::AppState, args::Dict{String,Any}; progress_to
         return tool_result_error("max_wait_seconds must be a non-negative number of seconds.")
     max_wait = Float64(max_wait)
 
+    # Likewise up front, so the caller gets the reason rather than a failed run.
+    try
+        memory_threshold_of(args)
+    catch err
+        err isa ArgumentError || rethrow()
+        return tool_result_error(err.msg)
+    end
+
     init_controller!(state)
 
     filter = build_filter(args)
@@ -513,7 +521,7 @@ function tool_rerun_failed(state::AppState, args::Dict{String,Any}; progress_tok
     new_args = copy(args)
     new_args["items"] = failed_ids
     # Preserve original profile params
-    for key in ("julia_cmd", "julia_args", "max_workers", "timeout", "mode", "max_wait_seconds")
+    for key in ("julia_cmd", "julia_args", "max_workers", "timeout", "mode", "max_wait_seconds", "memory_threshold")
         if haskey(prev_run.profile_params, key) && !haskey(new_args, key)
             new_args[key] = prev_run.profile_params[key]
         end

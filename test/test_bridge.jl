@@ -270,3 +270,20 @@ end
         @test_throws ErrorException JuliaMCP.discover(state)
     end
 end
+
+@testitem "memory_threshold is validated and passed through" begin
+    using JuliaMCP: memory_threshold_of, run_options
+
+    @test isnothing(memory_threshold_of(Dict{String,Any}()))
+    @test memory_threshold_of(Dict{String,Any}("memory_threshold" => 0.25)) === 0.25
+    # An integer fraction is fine at the boundary, and comes back as a Float64.
+    @test memory_threshold_of(Dict{String,Any}("memory_threshold" => 1)) === 1.0
+    @test run_options(Dict{String,Any}("memory_threshold" => 0.5)).memory_threshold === 0.5
+    @test isnothing(run_options(Dict{String,Any}()).memory_threshold)
+
+    # Out of range, and `true` is not a fraction: rejected rather than silently ignored,
+    # which is what the test process would do with it.
+    for bad in (0, -0.1, 1.5, true)
+        @test_throws "memory_threshold must be a fraction greater than 0 and at most 1" memory_threshold_of(Dict{String,Any}("memory_threshold" => bad))
+    end
+end
