@@ -73,7 +73,25 @@ function run_options(params::Dict{String,Any})
         julia_args = convert(Vector{String}, get(params, "julia_args", String[])),
         julia_num_threads = julia_num_threads,
         max_workers = Int(get(() -> TIR.default_max_workers(), params, "max_workers")::Integer),
+        memory_threshold = memory_threshold_of(params),
     )
+end
+
+"""
+    memory_threshold_of(params) -> Union{Nothing,Float64}
+
+The validated `memory_threshold`, or `nothing` when the caller did not ask for one.
+
+Nothing downstream checks the range and the test process swallows a bad value into "never
+recycle", so an unusable fraction has to be rejected here or it passes for a working one.
+"""
+function memory_threshold_of(params::Dict{String,Any})
+    v = get(params, "memory_threshold", nothing)
+    isnothing(v) && return nothing
+    # `Bool <: Real`, so exclude it: JSON `true` is not a fraction.
+    (v isa Real && !(v isa Bool) && 0 < v <= 1) ||
+        throw(ArgumentError("memory_threshold must be a fraction greater than 0 and at most 1, got $(repr(v))."))
+    return Float64(v)
 end
 
 function definition_error_dict(e::TIR.DefinitionError)

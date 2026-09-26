@@ -219,6 +219,13 @@ function tool_definitions()
                         "type" => "integer",
                         "description" => "Maximum number of parallel test processes (default: the number of CPU threads, at most 8 and at most one per 3 GiB of system memory).",
                     ),
+                    "memory_threshold" => Dict{String,Any}(
+                        "type" => "number",
+                        "description" => "Recycle a test worker once its own resident memory exceeds this fraction of total system memory, " *
+                                         "checked after each test item so no result is lost; the controller redistributes the worker's remaining items. " *
+                                         "Off by default. Use it for a suite whose workers grow run after run — note the fraction is of total memory, " *
+                                         "so on a large-memory machine a worth-recycling worker is still a small fraction.",
+                    ),
                     "mode" => Dict{String,Any}(
                         "type" => "string",
                         "enum" => ["Normal", "Coverage"],
@@ -280,6 +287,7 @@ function tool_definitions()
                     "max_workers" => Dict{String,Any}("type" => "integer", "description" => "Max workers override."),
                     "timeout" => Dict{String,Any}("type" => "number", "description" => "Per-item timeout override."),
                     "max_wait_seconds" => Dict{String,Any}("type" => "number", "description" => "Override for how long this call waits before returning the run as still running (default $(MAX_WAIT_SECONDS_DEFAULT))."),
+                    "memory_threshold" => Dict{String,Any}("type" => "number", "description" => "Worker recycle threshold override."),
                 ),
                 "required" => ["testrun_id"],
             ),
